@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XDCAM Transcoder - Admin Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box">
+            <h1 class="login-title">XDCAM Transcoder</h1>
+            <h2 class="login-subtitle">Admin Panel</h2>
+            <form id="login-form">
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" required autofocus>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Accedi</button>
+                <div id="login-error" class="error-message hidden"></div>
+            </form>
+        </div>
+    </div>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('login-error');
+            
+            try {
+                const response = await fetch('/admin/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({password})
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    window.location.href = '/admin/dashboard';
+                } else {
+                    errorDiv.textContent = data.error || 'Password errata';
+                    errorDiv.classList.remove('hidden');
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Errore di connessione';
+                errorDiv.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
+

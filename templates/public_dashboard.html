@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XDCAM Transcoder - Status Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <div class="logo-container">
+                    <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="header-logo" onerror="this.style.display='none'">
+                    <h1 class="logo">XDCAM Transcoder</h1>
+                </div>
+                <div class="header-badge">LIVE</div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Watchfolders Status -->
+            <section class="section">
+                <h2 class="section-title">Watchfolders Status</h2>
+                <div class="watchfolders-grid" id="watchfolders-grid">
+                    <!-- Popolato dinamicamente -->
+                </div>
+            </section>
+
+            <!-- Recent Jobs -->
+            <section class="section">
+                <h2 class="section-title">Recent Transcoding Jobs</h2>
+                <div class="jobs-table-container">
+                    <table class="jobs-table">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Watchfolder</th>
+                                <th>Status</th>
+                                <th>Progress</th>
+                                <th>Started</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobs-tbody">
+                            <!-- Popolato dinamicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Workers Status -->
+            <section class="section">
+                <h2 class="section-title">Workers Status</h2>
+                <div class="workers-grid" id="workers-grid">
+                    <!-- Popolato dinamicamente -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Job Details Modal -->
+    <div class="modal" id="job-modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2>Job Details</h2>
+            <div id="job-details-content"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/public_dashboard.js') }}"></script>
+</body>
+</html>
+

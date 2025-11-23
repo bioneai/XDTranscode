@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XDCAM Transcoder - Admin Panel</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <div class="logo-container">
+                    <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="header-logo" onerror="this.style.display='none'">
+                    <h1 class="logo">XDCAM Transcoder - Admin</h1>
+                </div>
+                <button class="btn btn-secondary" id="logout-btn">Logout</button>
+            </div>
+        </header>
+
+        <nav class="admin-nav">
+            <button class="nav-btn active" data-section="watchfolders">Watchfolders</button>
+            <button class="nav-btn" data-section="presets">Presets</button>
+            <button class="nav-btn" data-section="workers">Workers</button>
+            <button class="nav-btn" data-section="jobs">Jobs</button>
+            <button class="nav-btn" data-section="logs">Logs</button>
+        </nav>
+
+        <main class="main-content">
+            <!-- Watchfolders Section -->
+            <section class="admin-section" id="watchfolders-section">
+                <div class="section-header">
+                    <h2>Watchfolders</h2>
+                    <button class="btn btn-primary" id="add-watchfolder-btn">+ Nuovo Watchfolder</button>
+                </div>
+                <div class="table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th>Path</th>
+                                <th>Output Path</th>
+                                <th>Archive Path</th>
+                                <th>Preset</th>
+                                <th>Status</th>
+                                <th>Active</th>
+                                <th>Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody id="watchfolders-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Presets Section -->
+            <section class="admin-section hidden" id="presets-section">
+                <div class="section-header">
+                    <h2>Transcode Presets</h2>
+                    <button class="btn btn-primary" id="add-preset-btn">+ Nuovo Preset</button>
+                </div>
+                <div class="table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th>Video Codec</th>
+                                <th>Video Bitrate</th>
+                                <th>Audio Codec</th>
+                                <th>Container</th>
+                                <th>Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody id="presets-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Workers Section -->
+            <section class="admin-section hidden" id="workers-section">
+                <div class="section-header">
+                    <h2>Workers</h2>
+                    <button class="btn btn-primary" id="add-worker-btn">+ Nuovo Worker</button>
+                </div>
+                <div class="table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th>Status</th>
+                                <th>Current Job</th>
+                                <th>Max Concurrent</th>
+                                <th>Active</th>
+                                <th>Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody id="workers-tbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Jobs Section -->
+            <section class="admin-section hidden" id="jobs-section">
+                <div class="section-header">
+                    <h2>Transcoding Jobs</h2>
+                </div>
+                <div class="table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Watchfolder</th>
+                                <th>Status</th>
+                                <th>Progress</th>
+                                <th>Created</th>
+                                <th>Error</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobs-tbody-admin"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Logs Section -->
+            <section class="admin-section hidden" id="logs-section">
+                <div class="section-header">
+                    <h2>System Logs</h2>
+                    <div>
+                        <button class="btn btn-secondary" onclick="refreshLogs()">Aggiorna</button>
+                        <button class="btn btn-primary" onclick="downloadLogs()">Scarica Log</button>
+                    </div>
+                </div>
+                <div class="logs-container">
+                    <div class="logs-controls">
+                        <label>Righe da mostrare:</label>
+                        <select id="logs-lines" onchange="refreshLogs()">
+                            <option value="50">50</option>
+                            <option value="100" selected>100</option>
+                            <option value="200">200</option>
+                            <option value="500">500</option>
+                        </select>
+                    </div>
+                    <div class="logs-content" id="logs-content">
+                        <p style="color: var(--text-secondary);">Caricamento log...</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal" id="watchfolder-modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2 id="watchfolder-modal-title">Nuovo Watchfolder</h2>
+            <form id="watchfolder-form">
+                <input type="hidden" id="watchfolder-id">
+                <div class="form-group">
+                    <label>Nome</label>
+                    <input type="text" id="watchfolder-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Tipo Watchfolder</label>
+                    <select id="watchfolder-type" onchange="toggleWatchfolderType()">
+                        <option value="local">Locale</option>
+                        <option value="ftp">FTP Remoto</option>
+                    </select>
+                </div>
+                
+                <!-- Campi Local -->
+                <div id="local-fields">
+                    <div class="form-group">
+                        <label>Path</label>
+                        <input type="text" id="watchfolder-path" placeholder="/path/to/watchfolder">
+                    </div>
+                </div>
+                
+                <!-- Campi FTP -->
+                <div id="ftp-fields" style="display: none;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>FTP Host</label>
+                            <input type="text" id="watchfolder-ftp-host" placeholder="ftp.example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>FTP Port</label>
+                            <input type="number" id="watchfolder-ftp-port" value="21" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>FTP Username</label>
+                            <input type="text" id="watchfolder-ftp-username" placeholder="username">
+                        </div>
+                        <div class="form-group">
+                            <label>FTP Password</label>
+                            <input type="password" id="watchfolder-ftp-password" placeholder="password">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>FTP Remote Path</label>
+                        <input type="text" id="watchfolder-ftp-remote-path" placeholder="/remote/path" value="/">
+                    </div>
+                    <div class="form-group">
+                        <label>Local Temp Directory (per download)</label>
+                        <input type="text" id="watchfolder-ftp-local-temp" placeholder="/tmp/xdcam_ftp" value="/tmp/xdcam_ftp">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Output Path</label>
+                    <input type="text" id="watchfolder-output-path">
+                </div>
+                <div class="form-group">
+                    <label>Archive Path (cartella per file originali dopo transcodifica)</label>
+                    <input type="text" id="watchfolder-archive-path" placeholder="Lasciare vuoto per non archiviare">
+                </div>
+                <div class="form-group">
+                    <label>Preset</label>
+                    <select id="watchfolder-preset-id"></select>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="watchfolder-active"> Attivo
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Salva</button>
+                    <button type="button" class="btn btn-secondary" id="watchfolder-cancel">Annulla</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="preset-modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2 id="preset-modal-title">Nuovo Preset</h2>
+            <form id="preset-form">
+                <input type="hidden" id="preset-id">
+                <div class="form-group">
+                    <label>Nome</label>
+                    <input type="text" id="preset-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Descrizione</label>
+                    <textarea id="preset-description"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Video Codec</label>
+                        <input type="text" id="preset-video-codec" value="mpeg2video" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Video Bitrate</label>
+                        <input type="text" id="preset-video-bitrate" value="50000k" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Audio Codec</label>
+                        <input type="text" id="preset-audio-codec" value="pcm_s16le" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Audio Bitrate</label>
+                        <input type="text" id="preset-audio-bitrate" value="1536k">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Audio Sample Rate</label>
+                        <input type="text" id="preset-audio-sample-rate" value="48000" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Audio Channels</label>
+                        <input type="text" id="preset-audio-channels" value="2" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Container</label>
+                    <input type="text" id="preset-container" value="mxf" required>
+                </div>
+                <div class="form-group">
+                    <label>FFmpeg Params (opzionale)</label>
+                    <input type="text" id="preset-ffmpeg-params" placeholder="-profile:v 0 -level:v 2">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Salva</button>
+                    <button type="button" class="btn btn-secondary" id="preset-cancel">Annulla</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="worker-modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2 id="worker-modal-title">Nuovo Worker</h2>
+            <form id="worker-form">
+                <input type="hidden" id="worker-id">
+                <div class="form-group">
+                    <label>Nome</label>
+                    <input type="text" id="worker-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Max Concurrent Jobs</label>
+                    <input type="number" id="worker-max-concurrent" value="1" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="worker-active"> Attivo
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Salva</button>
+                    <button type="button" class="btn btn-secondary" id="worker-cancel">Annulla</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/admin_dashboard.js') }}"></script>
+</body>
+</html>
+
