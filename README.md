@@ -76,6 +76,25 @@ L'admin panel permette di:
    - Impostare bitrate e parametri FFmpeg
    - Preset XDCAM50 preconfigurato incluso
 
+### Preset con burn-in Timecode (sorgente)
+È disponibile un preset derivato da `H264_LOWRES` chiamato `H264_LOWRES_TC` che aggiunge il **timecode embedded della sorgente** come overlay a video (FFmpeg `drawtext`).
+
+- **Origine timecode**: `ffprobe` cerca `format.tags.timecode`, `streams[].tags.timecode` e (MOV) stream `tmcd`.
+- **Fallback**: se il timecode non è presente/non leggibile, viene usato `00:00:00:00` e viene emesso un warning a log.
+- **Nota compatibilità**: con FFmpeg 4.4 il valore `timecode` viene passato come stringa **quotata** (es. `timecode='15\:51\:00\:21'`) e con `r=25` per evitare errori di parsing del filtro.
+
+Creazione preset (una tantum):
+
+```bash
+source .venv/bin/activate
+python scripts/clone_preset.py --src H264_LOWRES --dst H264_LOWRES_TC
+```
+
+Smoke test manuale consigliato:
+- usa un file sorgente con timecode noto (MOV/MXF)
+- assegna il preset `H264_LOWRES_TC` a un watchfolder
+- verifica nell'output che l'overlay corrisponda al timecode sorgente (non elapsed)
+
 3. **Gestire Worker**:
    - Creare worker per elaborazione
    - Configurare job concorrenti

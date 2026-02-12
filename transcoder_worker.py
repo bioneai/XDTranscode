@@ -8,6 +8,11 @@ from models import TranscodeJob, Worker, FileStatus
 from datetime import datetime
 import json
 import re
+import shlex
+import logging
+from fractions import Fraction
+
+logger = logging.getLogger("XDCAMTranscoder.Worker")
 
 class TranscoderWorker:
     def __init__(self, db_session_factory):
@@ -199,14 +204,232 @@ class TranscoderWorker:
         cmd.extend(['-ac', preset.audio_channels])
         
         # Parametri aggiuntivi
+        extra_params = []
         if preset.ffmpeg_params:
-            params = preset.ffmpeg_params.split()
-            cmd.extend(params)
+            # Usa shlex per supportare quoting e parametri complessi
+            sanitized = self._sanitize_ffmpeg_params_string(preset.ffmpeg_params)
+            extra_params = shlex.split(sanitized)
+            # Normalizza token con spazi/continuazioni "shell-style" (es. "\ -c:v" -> "-c:v")
+            normalized = []
+            for tok in extra_params:
+                t = tok.strip()
+                if not t or t == "\\":
+                    continue
+                if t != tok:
+                    logger.warning("Normalizzo token ffmpeg_params: %r -> %r", tok, t)
+                normalized.append(t)
+            extra_params = normalized
+
+        # Preset speciali: burn-in timecode sorgente
+        if getattr(preset, "name", "") == "H264_LOWRES_TC":
+            drawtext = self._build_timecode_drawtext(job.input_path)
+            extra_params = self._inject_drawtext_into_params(extra_params, drawtext)
+
+        if extra_params:
+            cmd.extend(extra_params)
         
         # Output
         cmd.extend(['-y', job.output_path])
         
         return cmd
+
+    def _sanitize_ffmpeg_params_string(self, s: str) -> str:
+        """
+        Rende più robusto il parsing di ffmpeg_params inseriti via UI:
+        - rimuove continuazioni stile shell (backslash seguito da whitespace/newline)
+        - sostituisce newline con spazi
+        Nota: NON tocca backslash seguiti da ':' (usati nei filtri tipo drawtext).
+        """
+        if not s:
+            return s
+        # Normalizza newline
+        s = s.replace("\r\n", "\n")
+        # Rimuove "\" come continuation prima di newline
+        s = re.sub(r"\\\s*\n", " ", s)
+        # Rimuove "\" seguito da spazi/tab (continuation spesso salvata come "\ -c:v")
+        s = re.sub(r"\\[ \t]+", " ", s)
+        # Converte eventuali newline residue in spazi
+        s = s.replace("\n", " ")
+        return s.strip()
+
+    def _build_timecode_drawtext(self, input_path: str) -> str:
+        """
+        Ritorna un filtro drawtext che brucia a video il timecode embedded della sorgente.
+        Fallback: 00:00:00:00 se timecode assente/non leggibile.
+        """
+        timecode, fps = self._get_source_timecode_and_fps(input_path)
+
+        # Font "sicuro" su Ubuntu; fallback a font=monospace se manca
+        fontfile = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+        use_fontfile = os.path.exists(fontfile)
+
+        # Escape ":" per drawtext (FFmpeg filtergraph)
+        tc_escaped = self._escape_timecode_for_drawtext(timecode)
+        rate_str = self._format_fps_for_drawtext(fps)
+
+        base = []
+        if use_fontfile:
+            base.append(f"fontfile={fontfile}")
+        else:
+            logger.warning("Font file non trovato (%s). Uso font=monospace.", fontfile)
+            base.append("font=monospace")
+
+        # IMPORTANTE (FFmpeg 4.4): il valore deve essere quotato, altrimenti ':' spezza la filter-argstring
+        # e drawtext può fallire con errori fuorvianti (es. "Both text and text file provided").
+        base.append(f"timecode='{tc_escaped}'")
+        # Usa l'alias 'r' (rational) per il frame rate del timecode (più robusto su versioni vecchie).
+        base.append(f"r={rate_str}")
+        base.append("fontsize=36")
+        base.append("fontcolor=white")
+        base.append("box=1")
+        base.append("boxcolor=0x00000099")
+        base.append("x=40")
+        base.append("y=40")
+
+        return "drawtext=" + ":".join(base)
+
+    def _escape_timecode_for_drawtext(self, timecode: str) -> str:
+        # FFmpeg richiede '\:' per includere ':' nei valori. In argv (no shell) basta '\\:' in stringa python.
+        return timecode.replace(":", "\\:")
+
+    def _format_fps_for_drawtext(self, fps: float | None) -> str:
+        # drawtext rate accetta un numero; se non noto usa 25.
+        if not fps or fps <= 0:
+            return "25"
+        # Evita rappresentazioni lunghe
+        if abs(fps - round(fps)) < 1e-6:
+            return str(int(round(fps)))
+        return f"{fps:.3f}".rstrip("0").rstrip(".")
+
+    def _inject_drawtext_into_params(self, params: list[str], drawtext_filter: str) -> list[str]:
+        """
+        Se esiste già -vf/-filter:v, appende ,drawtext=... alla filterchain.
+        Altrimenti aggiunge -vf drawtext=...
+        """
+        if not params:
+            return ["-vf", drawtext_filter]
+
+        # Cerca opzione filtro video e relativo argomento
+        for key in ("-vf", "-filter:v", "-filter_complex"):
+            if key in params:
+                idx = params.index(key)
+                if idx + 1 >= len(params):
+                    # opzione senza argomento: aggiungi
+                    return params + [drawtext_filter]
+                current = params[idx + 1]
+                if "drawtext=" in current:
+                    logger.warning("Filtro drawtext già presente; skip iniezione timecode.")
+                    return params
+                params[idx + 1] = current + "," + drawtext_filter
+                return params
+
+        # Nessun filtro video trovato
+        return params + ["-vf", drawtext_filter]
+
+    def _get_source_timecode_and_fps(self, input_path: str) -> tuple[str, float | None]:
+        """
+        Estrae timecode embedded e fps dal file sorgente via ffprobe.
+        - timecode: format.tags.timecode, streams[].tags.timecode, stream tmcd tags.timecode
+        - fps: avg_frame_rate o r_frame_rate del primo stream video
+        """
+        data = self._ffprobe_show_format_streams(input_path)
+        timecode = self._extract_timecode_from_ffprobe(data)
+        fps = self._extract_fps_from_ffprobe(data)
+
+        if not timecode:
+            logger.warning("Timecode sorgente non trovato in %s. Fallback 00:00:00:00.", input_path)
+            timecode = "00:00:00:00"
+        else:
+            # Normalizza drop-frame ';' → ':'
+            if ";" in timecode:
+                logger.warning("Timecode drop-frame rilevato (%s). Normalizzo ';' in ':'.", timecode)
+                timecode = timecode.replace(";", ":")
+
+        if not fps:
+            logger.warning("FPS sorgente non determinato per %s. Uso rate=25 per drawtext.", input_path)
+
+        return timecode, fps
+
+    def _ffprobe_show_format_streams(self, input_path: str) -> dict:
+        if not os.access(input_path, os.R_OK):
+            return {}
+        cmd = [
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_streams", "-show_format", input_path
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, errors="replace")
+            if result.returncode != 0 or not result.stdout:
+                return {}
+            return json.loads(result.stdout)
+        except Exception as e:
+            logger.warning("ffprobe fallito su %s: %s", input_path, e)
+            return {}
+
+    def _extract_timecode_from_ffprobe(self, data: dict) -> str | None:
+        if not isinstance(data, dict):
+            return None
+
+        fmt = data.get("format") or {}
+        fmt_tags = (fmt.get("tags") or {}) if isinstance(fmt, dict) else {}
+        tc = fmt_tags.get("timecode")
+        if tc:
+            return str(tc)
+
+        streams = data.get("streams") or []
+        if isinstance(streams, list):
+            # stream tags
+            for s in streams:
+                if not isinstance(s, dict):
+                    continue
+                tags = s.get("tags") or {}
+                if isinstance(tags, dict) and tags.get("timecode"):
+                    return str(tags.get("timecode"))
+
+            # tmcd stream (tipico MOV)
+            for s in streams:
+                if not isinstance(s, dict):
+                    continue
+                if s.get("codec_name") == "tmcd":
+                    tags = s.get("tags") or {}
+                    if isinstance(tags, dict) and tags.get("timecode"):
+                        return str(tags.get("timecode"))
+
+        return None
+
+    def _extract_fps_from_ffprobe(self, data: dict) -> float | None:
+        streams = data.get("streams") or []
+        if not isinstance(streams, list):
+            return None
+
+        for s in streams:
+            if not isinstance(s, dict):
+                continue
+            if s.get("codec_type") != "video":
+                continue
+            # prefer avg_frame_rate
+            for k in ("avg_frame_rate", "r_frame_rate"):
+                rate = s.get(k)
+                fps = self._parse_ffprobe_rate(rate)
+                if fps:
+                    return fps
+        return None
+
+    def _parse_ffprobe_rate(self, rate) -> float | None:
+        """
+        rate può essere tipo '25/1', '30000/1001', '0/0' o None.
+        """
+        if not rate or not isinstance(rate, str):
+            return None
+        if rate == "0/0":
+            return None
+        try:
+            frac = Fraction(rate)
+            if frac <= 0:
+                return None
+            return float(frac)
+        except Exception:
+            return None
     
     def _monitor_progress(self, process, job_id):
         """Monitora progresso transcodifica"""
