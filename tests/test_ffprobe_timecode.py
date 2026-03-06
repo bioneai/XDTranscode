@@ -34,6 +34,33 @@ class TestFFprobeParsing(unittest.TestCase):
         self.assertIn("timecode='15\\:51\\:00\\:21'", drawtext)
         self.assertIn(":r=25", drawtext)
 
+    def test_build_command_injects_timecode_and_watermark_for_tc_wtmk(self):
+        # patch: evita ffprobe e forza valori noti
+        self.worker._get_source_timecode_and_fps = lambda _p: ("15:51:00:21", 25.0)
+
+        class P:
+            name = "H264_LOWRES_TC_WTMK"
+            video_codec = "libx264"
+            video_bitrate = "800k"
+            audio_codec = "aac"
+            audio_bitrate = "128k"
+            audio_sample_rate = "48000"
+            audio_channels = "2"
+            ffmpeg_params = "-vf yadif,scale=1024:576 -profile:v high -level 4.2 -pix_fmt yuv420p -af loudnorm -movflags +faststart"
+
+        class J:
+            input_path = "/mnt/raid0/TRANSCODE_V3/AUTO_IN/IN_CopiaVisione/D008C001_250110JTS06.MP4"
+            output_path = "/tmp/_dryrun_tc_wtmk.mp4"
+            preset = P()
+
+        cmd = self.worker._build_ffmpeg_command(J())
+        self.assertIn("-vf", cmd)
+        vf = cmd[cmd.index("-vf") + 1]
+        self.assertIn("timecode='15\\:51\\:00\\:21'", vf)
+        self.assertIn(":r=25", vf)
+        self.assertIn("text='COPIA VISIONE'", vf)
+        self.assertGreaterEqual(vf.count("drawtext="), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -220,10 +220,27 @@ class TranscoderWorker:
                 normalized.append(t)
             extra_params = normalized
 
+        preset_name = getattr(preset, "name", "") or ""
+
         # Preset speciali: burn-in timecode sorgente
-        if getattr(preset, "name", "") == "H264_LOWRES_TC":
-            drawtext = self._build_timecode_drawtext(job.input_path)
-            extra_params = self._inject_drawtext_into_params(extra_params, drawtext)
+        if preset_name in ("H264_LOWRES_TC", "H264_LOWRES_TC_WTMK"):
+            drawtext_tc = self._build_timecode_drawtext(job.input_path)
+            extra_params = self._inject_drawtext_into_params(
+                extra_params,
+                drawtext_tc,
+                dedupe_contains=["timecode="],
+                label="timecode",
+            )
+
+        # Preset speciali: watermark "COPIA VISIONE" centrato
+        if preset_name == "H264_LOWRES_TC_WTMK":
+            drawtext_wm = self._build_watermark_drawtext()
+            extra_params = self._inject_drawtext_into_params(
+                extra_params,
+                drawtext_wm,
+                dedupe_contains=["text='COPIA VISIONE'", "text=COPIA VISIONE"],
+                label="watermark",
+            )
 
         if extra_params:
             cmd.extend(extra_params)
@@ -288,6 +305,29 @@ class TranscoderWorker:
 
         return "drawtext=" + ":".join(base)
 
+    def _build_watermark_drawtext(self) -> str:
+        """
+        Watermark centrato "COPIA VISIONE" (bianco 50%, fontsize 40).
+        """
+        fontfile = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+        use_fontfile = os.path.exists(fontfile)
+
+        base = []
+        if use_fontfile:
+            base.append(f"fontfile={fontfile}")
+        else:
+            logger.warning("Font file non trovato (%s). Uso font=monospace.", fontfile)
+            base.append("font=monospace")
+
+        # Testo con spazio: va quotato nel filtro
+        base.append("text='COPIA VISIONE'")
+        base.append("fontsize=40")
+        base.append("fontcolor=white@0.5")
+        base.append("x=(w-text_w)/2")
+        base.append("y=(h-text_h)/2")
+
+        return "drawtext=" + ":".join(base)
+
     def _escape_timecode_for_drawtext(self, timecode: str) -> str:
         # FFmpeg richiede '\:' per includere ':' nei valori. In argv (no shell) basta '\\:' in stringa python.
         return timecode.replace(":", "\\:")
@@ -301,11 +341,18 @@ class TranscoderWorker:
             return str(int(round(fps)))
         return f"{fps:.3f}".rstrip("0").rstrip(".")
 
-    def _inject_drawtext_into_params(self, params: list[str], drawtext_filter: str) -> list[str]:
+    def _inject_drawtext_into_params(
+        self,
+        params: list[str],
+        drawtext_filter: str,
+        dedupe_contains: list[str] | None = None,
+        label: str = "drawtext",
+    ) -> list[str]:
         """
         Se esiste già -vf/-filter:v, appende ,drawtext=... alla filterchain.
         Altrimenti aggiunge -vf drawtext=...
         """
+        dedupe_contains = dedupe_contains or []
         if not params:
             return ["-vf", drawtext_filter]
 
@@ -317,9 +364,11 @@ class TranscoderWorker:
                     # opzione senza argomento: aggiungi
                     return params + [drawtext_filter]
                 current = params[idx + 1]
-                if "drawtext=" in current:
-                    logger.warning("Filtro drawtext già presente; skip iniezione timecode.")
-                    return params
+                # Dedupe mirato: permetti più drawtext, evita solo duplicati specifici
+                for needle in dedupe_contains:
+                    if needle and needle in current:
+                        logger.warning("Filtro %s già presente (%s); skip iniezione.", label, needle)
+                        return params
                 params[idx + 1] = current + "," + drawtext_filter
                 return params
 

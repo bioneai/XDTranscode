@@ -1,0 +1,18 @@
+[Unit]
+Description=XDCAM Transcoder (XDTranscode)
+After=network.target
+
+[Service]
+Type=simple
+User=monnis
+Group=monnis
+WorkingDirectory=/home/monnis/XDTranscode
+EnvironmentFile=/home/monnis/XDTranscode/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/monnis/XDTranscode/.venv/bin/python /home/monnis/XDTranscode/app.py
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
