@@ -5,8 +5,38 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from models import Base, WatchFolder, TranscodePreset, Worker, TranscodeJob, FileStatus
 from dotenv import load_dotenv
 import os
+import socket
 import threading
 from datetime import datetime
+
+# Cache per calcolo CPU (Linux /proc/stat)
+_cpu_last = None
+
+def _get_cpu_percent():
+    """Percentuale utilizzo CPU (Linux). Ritorna None se non disponibile."""
+    global _cpu_last
+    try:
+        with open('/proc/stat', 'r') as f:
+            line = f.readline()
+        parts = line.split()
+        if parts[0] != 'cpu' or len(parts) < 5:
+            return None
+        user, nice, system, idle = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4])
+        iowait = int(parts[5]) if len(parts) > 5 else 0
+        irq = int(parts[6]) if len(parts) > 6 else 0
+        softirq = int(parts[7]) if len(parts) > 7 else 0
+        steal = int(parts[8]) if len(parts) > 8 else 0
+        busy = user + nice + system + irq + softirq + steal
+        total = busy + idle + iowait
+        now = (busy, total)
+        if _cpu_last:
+            db, dt = now[0] - _cpu_last[0], now[1] - _cpu_last[1]
+            _cpu_last = now
+            return round(100 * db / dt, 1) if dt > 0 else 0
+        _cpu_last = now
+        return None
+    except Exception:
+        return None
 import hashlib
 import logging
 
@@ -52,7 +82,7 @@ ADMIN_PASSWORD_HASH = os.getenv('ADMIN_PASSWORD_HASH',
 @app.route('/')
 def public_dashboard():
     """Pagina pubblica con status watchfolder e transcodifica"""
-    return render_template('public_dashboard.html')
+    return render_template('public_dashboard.html', hostname=socket.gethostname())
 
 @app.route('/admin')
 def admin_login():
@@ -96,7 +126,9 @@ def public_status():
         jobs = db_session.query(TranscodeJob).order_by(TranscodeJob.created_at.desc()).limit(50).all()
         workers = db_session.query(Worker).filter(Worker.active == True).all()
         
+        cpu_percent = _get_cpu_percent()
         result = {
+            'cpu_percent': cpu_percent,
             'watchfolders': [{
                 'id': wf.id,
                 'name': wf.name,
@@ -136,6 +168,26 @@ def public_status():
     finally:
         db_session.close()
 
+@app.route('/api/public/jobs/<int:job_id>/cancel', methods=['POST'])
+def public_job_cancel(job_id):
+    """Annulla job in corso (pending o processing)"""
+    db_session = get_db_session()
+    try:
+        job = db_session.query(TranscodeJob).filter(TranscodeJob.id == job_id).first()
+        if not job:
+            return jsonify({'error': 'Job non trovato'}), 404
+        if job.status not in (FileStatus.PENDING, FileStatus.PROCESSING):
+            return jsonify({'error': f'Job non annullabile (stato: {job.status.value})'}), 400
+        job.status = FileStatus.CANCELLED
+        job.completed_at = datetime.utcnow()
+        db_session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        db_session.close()
+
 @app.route('/api/public/jobs/<int:job_id>')
 def public_job_details(job_id):
     """Dettagli job per pagina pubblica"""
@@ -161,6 +213,8 @@ def public_job_details(job_id):
             'output_size': job.output_size,
             'input_duration': job.input_duration,
             'output_duration': job.output_duration,
+            'input_mediainfo': job.input_mediainfo,
+            'output_mediainfo': job.output_mediainfo,
             'preset': job.preset.name if job.preset else 'N/A'
         })
     finally:

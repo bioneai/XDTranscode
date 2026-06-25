@@ -88,6 +88,9 @@ class TranscodeJob(Base):
     input_duration = Column(Float)  # seconds
     output_duration = Column(Float)  # seconds
     
+    input_mediainfo = Column(Text)   # output mediainfo file in ingresso
+    output_mediainfo = Column(Text)  # output mediainfo file in uscita
+    
     error_message = Column(Text)
     
     created_at = Column(DateTime, default=datetime.utcnow)

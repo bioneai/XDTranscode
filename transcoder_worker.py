@@ -130,6 +130,12 @@ class TranscoderWorker:
                 db_session.commit()
                 return
             
+            # Mediainfo file in ingresso
+            input_mediainfo = self._get_mediainfo(job.input_path)
+            if input_mediainfo:
+                job.input_mediainfo = input_mediainfo
+                db_session.commit()
+            
             # Costruisci comando FFmpeg
             ffmpeg_cmd = self._build_ffmpeg_command(job)
             
@@ -162,10 +168,23 @@ class TranscoderWorker:
                 job.status = FileStatus.COMPLETED
                 job.progress = 100
                 job.output_size = os.path.getsize(job.output_path) if os.path.exists(job.output_path) else None
+                job.output_duration = self._get_video_duration(job.output_path)
+                
+                # Mediainfo file in uscita
+                output_mediainfo = self._get_mediainfo(job.output_path)
+                if output_mediainfo:
+                    job.output_mediainfo = output_mediainfo
                 
                 # Sposta file originale in archivio se configurato
                 if job.watchfolder and job.watchfolder.archive_path:
                     self._archive_original_file(job)
+            elif job.status == FileStatus.CANCELLED:
+                # Annullato dall'utente: rimuovi eventuale file output parziale
+                if job.output_path and os.path.exists(job.output_path):
+                    try:
+                        os.remove(job.output_path)
+                    except OSError as e:
+                        logger.warning("Rimozione file parziale fallita %s: %s", job.output_path, e)
             else:
                 job.status = FileStatus.FAILED
                 # Estrai messaggio errore più significativo
@@ -499,6 +518,12 @@ class TranscoderWorker:
             time_pattern = re.compile(r'time=(\d+):(\d+):(\d+\.\d+)')
             
             while process.poll() is None:
+                # Verifica richiesta annullamento
+                db_session.expire_all()
+                job = db_session.query(TranscodeJob).filter(TranscodeJob.id == job_id).first()
+                if job and job.status == FileStatus.CANCELLED:
+                    process.terminate()
+                    break
                 # Leggi stderr (FFmpeg usa stderr per output)
                 line = process.stderr.readline()
                 if not line:
@@ -526,6 +551,24 @@ class TranscoderWorker:
         finally:
             db_session.close()
     
+    def _get_mediainfo(self, file_path: str) -> str | None:
+        """Esegue mediainfo sul file e restituisce output testuale (formato leggibile)."""
+        if not file_path or not os.path.exists(file_path) or not os.access(file_path, os.R_OK):
+            return None
+        try:
+            result = subprocess.run(
+                ["mediainfo", "--Output=Text", file_path],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                errors="replace",
+            )
+            if result.returncode == 0 and result.stdout:
+                return result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            logger.warning("mediainfo fallito su %s: %s", file_path, e)
+        return None
+
     def _get_video_duration(self, video_path):
         """Ottiene durata video usando FFprobe"""
         try:

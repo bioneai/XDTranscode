@@ -72,6 +72,12 @@ body {
     margin: 0;
 }
 
+.header-badges {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .header-badge {
     background: var(--success-color);
     color: white;
@@ -81,6 +87,12 @@ body {
     font-weight: 700;
     text-transform: uppercase;
     animation: pulse 2s infinite;
+}
+
+.header-hostname {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 500;
 }
 
 @keyframes pulse {
@@ -106,40 +118,117 @@ body {
     padding-bottom: 10px;
 }
 
-/* Watchfolders Grid */
-.watchfolders-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
+/* Section header con CPU */
+.section-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
 }
 
-.watchfolder-card {
-    background: var(--secondary-color);
+.section-watchfolders .section-title {
+    margin-bottom: 0;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.cpu-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 6px 12px;
     border-radius: 8px;
-    padding: 20px;
-    border: 1px solid var(--border-color);
-    transition: transform 0.2s, box-shadow 0.2s;
 }
 
-.watchfolder-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(52, 152, 219, 0.3);
-}
-
-.watchfolder-card h3 {
-    font-size: 18px;
-    margin-bottom: 15px;
+.cpu-icon {
+    font-size: 10px;
     color: var(--accent-color);
 }
 
-.watchfolder-status {
-    display: inline-block;
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: 600;
-    margin-bottom: 15px;
+.cpu-value {
+    font-weight: 700;
+    color: var(--accent-color);
+    min-width: 2.5em;
 }
+
+.cpu-indicator.cpu-high .cpu-value {
+    color: var(--warning-color);
+}
+
+.cpu-label {
+    font-size: 11px;
+    opacity: 0.9;
+}
+
+/* Watchfolders compatto */
+.watchfolders-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.watchfolders-empty {
+    color: var(--text-secondary);
+    font-size: 13px;
+    padding: 8px 0;
+}
+
+.watchfolder-header {
+    background: transparent !important;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.watchfolder-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) 90px 50px 50px 50px;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.watchfolder-row:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.wf-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wf-status {
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.wf-stat {
+    text-align: center;
+    font-size: 12px;
+}
+
+.wf-num {
+    font-weight: 700;
+}
+
+.wf-pending { color: var(--warning-color); }
+.wf-processing { color: var(--accent-color); }
+.wf-completed { color: var(--success-color); }
 
 .status-monitoring {
     background: var(--success-color);
@@ -154,32 +243,6 @@ body {
 .status-error {
     background: var(--warning-color);
     color: #fff;
-}
-
-.watchfolder-stats {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    margin-top: 15px;
-}
-
-.stat-item {
-    text-align: center;
-    padding: 10px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-}
-
-.stat-value {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--accent-color);
-}
-
-.stat-label {
-    font-size: 12px;
-    color: var(--text-secondary);
-    text-transform: uppercase;
 }
 
 /* Jobs Table */
@@ -228,6 +291,12 @@ body {
 .status-processing {
     background: var(--accent-color);
     color: white;
+    animation: status-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes status-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
 .status-completed {
@@ -240,13 +309,30 @@ body {
     color: white;
 }
 
+.progress-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 180px;
+}
+
+.progress-cell .progress-pct {
+    flex-shrink: 0;
+    font-size: 12px;
+    min-width: 2.5em;
+}
+
+.progress-cell .progress-bar {
+    flex: 1;
+    min-width: 120px;
+}
+
 .progress-bar {
     width: 100%;
-    height: 8px;
+    height: 10px;
     background: var(--border-color);
-    border-radius: 4px;
+    border-radius: 5px;
     overflow: hidden;
-    margin-top: 5px;
 }
 
 .progress-fill {

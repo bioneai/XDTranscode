@@ -7,6 +7,7 @@ async function fetchStatus() {
         const response = await fetch('/api/public/status');
         const data = await response.json();
         
+        updateCpu(data.cpu_percent);
         updateWatchfolders(data.watchfolders);
         updateJobs(data.recent_jobs);
         updateWorkers(data.workers);
@@ -15,49 +16,41 @@ async function fetchStatus() {
     }
 }
 
+function updateCpu(cpuPercent) {
+    const el = document.getElementById('cpu-indicator');
+    if (!el) return;
+    const valueEl = el.querySelector('.cpu-value');
+    if (!valueEl) return;
+    valueEl.textContent = cpuPercent != null ? cpuPercent : '--';
+    el.classList.toggle('cpu-high', cpuPercent != null && cpuPercent >= 80);
+}
+
 function updateWatchfolders(watchfolders) {
     const grid = document.getElementById('watchfolders-grid');
+    const header = document.querySelector('.watchfolder-header');
     grid.innerHTML = '';
     
     if (watchfolders.length === 0) {
-        grid.innerHTML = '<p style="color: var(--text-secondary);">Nessun watchfolder attivo</p>';
+        if (header) header.style.display = 'none';
+        grid.innerHTML = '<p class="watchfolders-empty">Nessun watchfolder attivo</p>';
         return;
     }
+    if (header) header.style.display = 'grid';
     
     watchfolders.forEach(wf => {
-        const card = document.createElement('div');
-        card.className = 'watchfolder-card';
-        
+        const row = document.createElement('div');
+        row.className = 'watchfolder-row';
         const statusClass = `status-${wf.status}`;
-        const activeText = wf.active ? 'Attivo' : 'Inattivo';
         
-        card.innerHTML = `
-            <h3>${escapeHtml(wf.name)}</h3>
-            <div class="watchfolder-status ${statusClass}">${wf.status}</div>
-            <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 15px;">
-                ${escapeHtml(wf.path)}
-            </p>
-            <div class="watchfolder-stats">
-                <div class="stat-item">
-                    <div class="stat-value">${wf.total_files}</div>
-                    <div class="stat-label">Totali</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-value" style="color: var(--warning-color);">${wf.pending}</div>
-                    <div class="stat-label">In Attesa</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-value" style="color: var(--accent-color);">${wf.processing}</div>
-                    <div class="stat-label">In Elaborazione</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-value" style="color: var(--success-color);">${wf.completed}</div>
-                    <div class="stat-label">Completati</div>
-                </div>
-            </div>
+        row.innerHTML = `
+            <span class="wf-name" title="${escapeHtml(wf.path)}">${escapeHtml(wf.name)}</span>
+            <span class="wf-status ${statusClass}">${wf.status}</span>
+            <span class="wf-stat" title="In attesa"><span class="wf-num wf-pending">${wf.pending}</span></span>
+            <span class="wf-stat" title="In elaborazione"><span class="wf-num wf-processing">${wf.processing}</span></span>
+            <span class="wf-stat" title="Completati"><span class="wf-num wf-completed">${wf.completed}</span></span>
         `;
         
-        grid.appendChild(card);
+        grid.appendChild(row);
     });
 }
 
@@ -82,9 +75,9 @@ function updateJobs(jobs) {
             <td>${escapeHtml(job.watchfolder)}</td>
             <td><span class="status-badge ${statusClass}">${job.status}</span></td>
             <td>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <span>${progress}%</span>
-                    <div class="progress-bar" style="flex: 1;">
+                <div class="progress-cell">
+                    <span class="progress-pct">${progress}%</span>
+                    <div class="progress-bar">
                         <div class="progress-fill" style="width: ${progress}%"></div>
                     </div>
                 </div>
@@ -94,6 +87,10 @@ function updateJobs(jobs) {
                 <button class="btn btn-small btn-secondary" onclick="showJobDetails(${job.id})">
                     Dettagli
                 </button>
+                ${(job.status === 'pending' || job.status === 'processing') ? `
+                <button class="btn btn-small" style="background: var(--warning-color); color: white;" onclick="stopJob(${job.id}, this)">
+                    Stop
+                </button>` : ''}
             </td>
         `;
         
@@ -127,6 +124,25 @@ function updateWorkers(workers) {
         
         grid.appendChild(card);
     });
+}
+
+async function stopJob(jobId, btn) {
+    if (!confirm('Terminare la transcodifica in corso?')) return;
+    try {
+        btn.disabled = true;
+        const response = await fetch(`/api/public/jobs/${jobId}/cancel`, { method: 'POST' });
+        const data = await response.json();
+        if (response.ok) {
+            fetchStatus();
+        } else {
+            alert(data.error || 'Errore');
+        }
+    } catch (error) {
+        console.error('Errore stop job:', error);
+        alert('Errore di connessione');
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 async function showJobDetails(jobId) {
@@ -191,6 +207,16 @@ async function showJobDetails(jobId) {
                 ${job.started_at ? `<div><strong>Started:</strong> ${new Date(job.started_at).toLocaleString('it-IT')}</div>` : ''}
                 ${job.completed_at ? `<div><strong>Completed:</strong> ${new Date(job.completed_at).toLocaleString('it-IT')}</div>` : ''}
                 ${job.error_message ? `<div style="color: var(--warning-color);"><strong>Error:</strong> ${escapeHtml(job.error_message)}</div>` : ''}
+                ${job.input_mediainfo ? `
+                <details style="margin-top: 15px;">
+                    <summary style="cursor: pointer; font-weight: bold;">MediaInfo file in ingresso</summary>
+                    <pre style="background: #1a1a1a; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11px; max-height: 200px; overflow-y: auto;">${escapeHtml(job.input_mediainfo)}</pre>
+                </details>` : ''}
+                ${job.output_mediainfo ? `
+                <details style="margin-top: 15px;">
+                    <summary style="cursor: pointer; font-weight: bold;">MediaInfo file in uscita</summary>
+                    <pre style="background: #1a1a1a; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11px; max-height: 200px; overflow-y: auto;">${escapeHtml(job.output_mediainfo)}</pre>
+                </details>` : ''}
             </div>
         `;
         

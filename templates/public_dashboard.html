@@ -14,16 +14,33 @@
                     <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="header-logo" onerror="this.style.display='none'">
                     <h1 class="logo">XDCAM Transcoder</h1>
                 </div>
-                <div class="header-badge">LIVE</div>
+                <div class="header-badges">
+                    <span class="header-badge">LIVE</span>
+                    <span class="header-hostname">{{ hostname }}</span>
+                </div>
             </div>
         </header>
 
         <main class="main-content">
             <!-- Watchfolders Status -->
-            <section class="section">
-                <h2 class="section-title">Watchfolders Status</h2>
-                <div class="watchfolders-grid" id="watchfolders-grid">
-                    <!-- Popolato dinamicamente -->
+            <section class="section section-watchfolders">
+                <div class="section-header-row">
+                    <h2 class="section-title">Watchfolders</h2>
+                    <div class="cpu-indicator" id="cpu-indicator">
+                        <span class="cpu-icon">◉</span>
+                        <span class="cpu-value">--</span>
+                        <span class="cpu-label">% CPU</span>
+                    </div>
+                </div>
+                <div class="watchfolders-compact">
+                    <div class="watchfolder-row watchfolder-header">
+                        <span>Watchfolder</span>
+                        <span>Status</span>
+                        <span title="In attesa">⏳</span>
+                        <span title="In elaborazione">▶</span>
+                        <span title="Completati">✓</span>
+                    </div>
+                    <div id="watchfolders-grid"></div>
                 </div>
             </section>
 

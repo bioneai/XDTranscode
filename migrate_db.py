@@ -52,6 +52,14 @@ def migrate_database():
         if 'ftp_local_temp' not in columns:
             migrations.append("ALTER TABLE watchfolders ADD COLUMN ftp_local_temp VARCHAR(512)")
         
+        # Migrazioni tabella jobs (mediainfo)
+        cursor.execute("PRAGMA table_info(jobs)")
+        job_columns = [row[1] for row in cursor.fetchall()]
+        if 'input_mediainfo' not in job_columns:
+            migrations.append("ALTER TABLE jobs ADD COLUMN input_mediainfo TEXT")
+        if 'output_mediainfo' not in job_columns:
+            migrations.append("ALTER TABLE jobs ADD COLUMN output_mediainfo TEXT")
+        
         # Esegui migrazioni
         for migration in migrations:
             print(f"Eseguendo: {migration}")

@@ -125,6 +125,12 @@ class WatchFolderManager:
             watch_type = watchfolder.watch_type or 'local'
             
             if watch_type == 'ftp':
+                # Ferma eventuale observer locale (es. switch da local a ftp)
+                if watchfolder_id in self.observers:
+                    observer = self.observers[watchfolder_id]
+                    observer.stop()
+                    observer.join()
+                    del self.observers[watchfolder_id]
                 # Avvia watcher FTP
                 if watchfolder_id in self.ftp_watchers:
                     return  # Già attivo
@@ -141,6 +147,11 @@ class WatchFolderManager:
                 self.ftp_watchers[watchfolder_id] = ftp_watcher
                 
             else:
+                # Ferma eventuale FTP watcher (es. switch da ftp a local)
+                if watchfolder_id in self.ftp_watchers:
+                    ftp_watcher = self.ftp_watchers[watchfolder_id]
+                    ftp_watcher.stop()
+                    del self.ftp_watchers[watchfolder_id]
                 # Avvia watcher locale
                 if watchfolder_id in self.observers:
                     return  # Già attivo
