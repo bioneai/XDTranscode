@@ -168,9 +168,8 @@ class WatchFolderManager:
                 observer.start()
                 
                 self.observers[watchfolder_id] = observer
-            
-            watchfolder.status = 'monitoring'
-            db_session.commit()
+                watchfolder.status = 'monitoring'
+                db_session.commit()
             
         except Exception as e:
             print(f"Errore avviando watchfolder {watchfolder_id}: {str(e)}")
@@ -206,6 +205,11 @@ class WatchFolderManager:
         finally:
             db_session.close()
     
+    def restart_watchfolder(self, watchfolder_id):
+        """Riavvia monitoraggio (utile dopo aggiornamento credenziali FTP)."""
+        self.stop_watchfolder(watchfolder_id)
+        self.start_watchfolder(watchfolder_id)
+
     def stop_all(self):
         """Ferma tutti i watchfolder"""
         for watchfolder_id in list(self.observers.keys()):

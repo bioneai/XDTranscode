@@ -82,6 +82,7 @@ def _parse_watchfolder_priority(value, default=10):
 # Import workers after DB setup
 from job_actions import pause_job, cancel_job, requeue_job, resume_job
 from watchfolder_manager import WatchFolderManager
+from ftp_utils import DEFAULT_FTP_LOCAL_TEMP, test_ftp_connection
 from transcoder_worker import TranscoderWorker
 
 # Global managers
@@ -300,18 +301,32 @@ def admin_create_watchfolder():
         if err:
             return jsonify({'error': err}), 400
 
+        watch_type = data.get('watch_type', 'local')
+        will_be_active = data.get('active', True)
+
+        if watch_type == 'ftp' and will_be_active:
+            ok, msg = test_ftp_connection(
+                data.get('ftp_host'),
+                data.get('ftp_username'),
+                data.get('ftp_password'),
+                data.get('ftp_port', 21),
+                data.get('ftp_remote_path', '/'),
+            )
+            if not ok:
+                return jsonify({'error': msg}), 400
+
         watchfolder = WatchFolder(
             name=data['name'],
             path=data.get('path', ''),
             output_path=data.get('output_path', ''),
             archive_path=data.get('archive_path', ''),
-            watch_type=data.get('watch_type', 'local'),
+            watch_type=watch_type,
             ftp_host=data.get('ftp_host'),
             ftp_port=data.get('ftp_port', 21),
             ftp_username=data.get('ftp_username'),
             ftp_password=data.get('ftp_password'),
             ftp_remote_path=data.get('ftp_remote_path', '/'),
-            ftp_local_temp=data.get('ftp_local_temp', '/tmp/xdcam_ftp'),
+            ftp_local_temp=data.get('ftp_local_temp', DEFAULT_FTP_LOCAL_TEMP),
             active=data.get('active', True),
             priority=priority,
             preset_id=data.get('preset_id'),
@@ -366,14 +381,42 @@ def admin_update_watchfolder(watchfolder_id):
         
         old_active = watchfolder.active
         watchfolder.active = data.get('active', watchfolder.active)
+
+        ftp_config_changed = any(
+            key in data
+            for key in (
+                'watch_type',
+                'ftp_host',
+                'ftp_port',
+                'ftp_username',
+                'ftp_password',
+                'ftp_remote_path',
+            )
+        )
+        if (
+            watchfolder.watch_type == 'ftp'
+            and watchfolder.active
+            and (not old_active or ftp_config_changed)
+        ):
+            ok, msg = test_ftp_connection(
+                watchfolder.ftp_host,
+                watchfolder.ftp_username,
+                watchfolder.ftp_password,
+                watchfolder.ftp_port or 21,
+                watchfolder.ftp_remote_path or '/',
+            )
+            if not ok:
+                return jsonify({'error': msg}), 400
         
         db_session.commit()
         
-        # Gestisci start/stop monitoraggio
+        # Gestisci start/stop/riavvio monitoraggio
         if watchfolder.active and not old_active:
             watchfolder_manager.start_watchfolder(watchfolder.id)
         elif not watchfolder.active and old_active:
             watchfolder_manager.stop_watchfolder(watchfolder.id)
+        elif watchfolder.active and old_active:
+            watchfolder_manager.restart_watchfolder(watchfolder.id)
         
         return jsonify({'success': True})
     except Exception as e:
