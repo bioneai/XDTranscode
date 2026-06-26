@@ -11,6 +11,7 @@ import json
 import re
 import shlex
 import logging
+from path_utils import ensure_shared_directory, ensure_shared_file
 from fractions import Fraction
 
 logger = logging.getLogger("XDCAMTranscoder.Worker")
@@ -180,7 +181,7 @@ class TranscoderWorker:
             output_dir = os.path.dirname(job.output_path)
             if output_dir and not os.path.exists(output_dir):
                 try:
-                    os.makedirs(output_dir, exist_ok=True)
+                    ensure_shared_directory(output_dir)
                 except Exception as e:
                     job.status = FileStatus.FAILED
                     job.error_message = f"Impossibile creare directory output: {str(e)}"
@@ -283,6 +284,7 @@ class TranscoderWorker:
 
                 if job.watchfolder and job.watchfolder.archive_path:
                     self._archive_original_file(job)
+                ensure_shared_file(job.output_path)
                 job.completed_at = datetime.utcnow()
             else:
                 job.status = FileStatus.FAILED
@@ -697,7 +699,7 @@ class TranscoderWorker:
             
             # Crea directory archivio se non esiste
             if not os.path.exists(archive_path):
-                os.makedirs(archive_path, exist_ok=True)
+                ensure_shared_directory(archive_path)
             
             # Verifica permessi scrittura directory archivio
             if not os.access(archive_path, os.W_OK):

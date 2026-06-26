@@ -45,7 +45,7 @@ echo "[4/12] Directory dati e watchfolder..."
 mkdir -p "${DATA_DIR}" "${WF_IN}" "${WF_OUT}" "${WF_DONE}"
 chown "${SERVICE_USER}:${SERVICE_USER}" "${DATA_DIR}"
 chown -R "${SERVICE_USER}:${SERVICE_USER}" /srv/XDCT_WF
-chmod 755 /srv/XDCT_WF "${WF_IN}" "${WF_OUT}" "${WF_DONE}"
+chmod 2775 /srv/XDCT_WF "${WF_IN}" "${WF_OUT}" "${WF_DONE}"
 
 echo "[5/12] Setup Python venv..."
 python3 -m venv "${INSTALL_DIR}/.venv"

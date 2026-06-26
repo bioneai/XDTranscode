@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 import ftputil
 from models import WatchFolder, TranscodeJob, FileStatus
+from path_utils import ensure_shared_directory, ensure_shared_file
 from ftp_utils import (
     DEFAULT_FTP_LOCAL_TEMP,
     FTP_EXCEPTIONS,
@@ -293,7 +294,7 @@ class FTPWatcher:
                 return
 
             output_dir = watchfolder.output_path or watchfolder.ftp_local_temp or DEFAULT_FTP_LOCAL_TEMP
-            os.makedirs(output_dir, exist_ok=True)
+            ensure_shared_directory(output_dir)
             local_file_path = os.path.join(output_dir, filename)
 
             job = TranscodeJob(
@@ -372,6 +373,7 @@ class FTPWatcher:
                 output_size=file_size,
                 completed_at=datetime.utcnow(),
             )
+            ensure_shared_file(local_file_path)
             logger.info(f"Download-only job {job_id} completato: {filename} ({file_size} bytes)")
 
         except Exception as e:
@@ -412,7 +414,7 @@ class FTPWatcher:
                 return
 
             local_temp = watchfolder.ftp_local_temp or DEFAULT_FTP_LOCAL_TEMP
-            os.makedirs(local_temp, exist_ok=True)
+            ensure_shared_directory(local_temp)
 
             local_file_path = os.path.join(local_temp, filename)
 
@@ -428,6 +430,7 @@ class FTPWatcher:
                 logger.info(f"Download file {filename} da FTP a {local_file_path}")
                 ftp.download(filename, local_file_path)
                 file_size = os.path.getsize(local_file_path)
+                ensure_shared_file(local_file_path)
                 logger.info(f"Download completato: {filename} ({file_size} bytes)")
             except Exception as e:
                 logger.error(
@@ -444,7 +447,7 @@ class FTPWatcher:
                 return
 
             output_dir = watchfolder.output_path if watchfolder.output_path else local_temp
-            os.makedirs(output_dir, exist_ok=True)
+            ensure_shared_directory(output_dir)
 
             base_name = os.path.splitext(filename)[0]
             container = watchfolder.preset.container if watchfolder.preset else 'mxf'

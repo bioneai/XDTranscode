@@ -53,6 +53,10 @@ logger = logging.getLogger('XDCAMTranscoder')
 
 load_dotenv()
 
+from path_utils import configure_shared_umask
+
+configure_shared_umask()
+
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
 CORS(app)

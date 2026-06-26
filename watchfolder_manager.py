@@ -5,6 +5,7 @@ from watchdog.events import FileSystemEventHandler
 from sqlalchemy.orm import Session
 from models import WatchFolder, TranscodeJob, FileStatus
 from ftp_utils import VIDEO_EXTENSIONS
+from path_utils import ensure_shared_directory
 from datetime import datetime
 
 class WatchFolderHandler(FileSystemEventHandler):
@@ -70,7 +71,7 @@ class WatchFolderHandler(FileSystemEventHandler):
             # Verifica/crea directory output
             if not os.path.exists(output_dir):
                 try:
-                    os.makedirs(output_dir, exist_ok=True)
+                    ensure_shared_directory(output_dir)
                 except OSError as e:
                     print(f"Errore creazione directory output {output_dir}: {str(e)}")
                     return

@@ -85,7 +85,16 @@ s.close()
 PYEOF
 
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}" "${DATA_DIR}" "${WF_BASE}"
-chmod 755 "${WF_BASE}" "${WF_BASE}/IN" "${WF_BASE}/OUT" "${WF_BASE}/DONE"
+chmod 2775 "${WF_BASE}" "${WF_BASE}/IN" "${WF_BASE}/OUT" "${WF_BASE}/DONE"
+
+apt-get install -y acl 2>/dev/null || true
+if id bione &>/dev/null; then
+  usermod -aG "${SERVICE_USER}" bione 2>/dev/null || true
+  if command -v setfacl &>/dev/null; then
+    setfacl -R -m u:bione:rwx "${WF_BASE}" "${DATA_DIR}/ftp_temp" 2>/dev/null || true
+    setfacl -R -d -m u:bione:rwx "${WF_BASE}" "${DATA_DIR}/ftp_temp" 2>/dev/null || true
+  fi
+fi
 
 cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
 [Unit]
