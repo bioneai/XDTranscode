@@ -263,7 +263,7 @@ class FTPWatcher:
             existing = db_session.query(TranscodeJob).filter(
                 TranscodeJob.input_filename == filename,
                 TranscodeJob.watchfolder_id == self.watchfolder_id,
-                TranscodeJob.status.in_([FileStatus.PENDING, FileStatus.PROCESSING])
+                TranscodeJob.status.in_([FileStatus.PENDING, FileStatus.PROCESSING, FileStatus.PAUSED])
             ).first()
             
             if existing:

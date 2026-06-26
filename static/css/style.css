@@ -188,7 +188,7 @@ body {
 
 .watchfolder-row {
     display: grid;
-    grid-template-columns: minmax(120px, 1fr) 90px 50px 50px 50px;
+    grid-template-columns: minmax(120px, 1fr) 45px 90px 50px 50px 50px;
     align-items: center;
     gap: 12px;
     padding: 8px 12px;
@@ -207,6 +207,23 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.wf-priority {
+    font-weight: 700;
+    color: var(--accent-color);
+    text-align: center;
+}
+
+.priority-badge {
+    display: inline-block;
+    min-width: 28px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(52, 152, 219, 0.2);
+    color: var(--accent-color);
+    font-weight: 700;
+    text-align: center;
 }
 
 .wf-status {
@@ -286,6 +303,16 @@ body {
 .status-pending {
     background: var(--warning-color);
     color: #000;
+}
+
+.status-paused {
+    background: #9b59b6;
+    color: white;
+}
+
+.status-cancelled {
+    background: #7f8c8d;
+    color: white;
 }
 
 .status-processing {

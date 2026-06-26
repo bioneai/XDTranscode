@@ -8,6 +8,7 @@ Base = declarative_base()
 
 class FileStatus(enum.Enum):
     PENDING = "pending"
+    PAUSED = "paused"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -29,6 +30,7 @@ class WatchFolder(Base):
     ftp_remote_path = Column(String(512))  # Path remoto sul server FTP
     ftp_local_temp = Column(String(512))  # Directory locale temporanea per download
     active = Column(Integer, default=1)  # 1 = active, 0 = inactive
+    priority = Column(Integer, default=10, nullable=False)  # più basso = priorità più alta
     status = Column(String(50), default='idle')  # idle, monitoring, error
     preset_id = Column(Integer, ForeignKey('presets.id'))
     created_at = Column(DateTime, default=datetime.utcnow)

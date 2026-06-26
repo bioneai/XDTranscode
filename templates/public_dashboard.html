@@ -35,6 +35,7 @@
                 <div class="watchfolders-compact">
                     <div class="watchfolder-row watchfolder-header">
                         <span>Watchfolder</span>
+                        <span>Prio</span>
                         <span>Status</span>
                         <span title="In attesa">⏳</span>
                         <span title="In elaborazione">▶</span>
@@ -85,6 +86,7 @@
         </div>
     </div>
 
+    <script src="{{ url_for('static', filename='js/job_queue.js') }}"></script>
     <script src="{{ url_for('static', filename='js/public_dashboard.js') }}"></script>
 </body>
 </html>

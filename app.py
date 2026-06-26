@@ -67,7 +67,20 @@ SessionLocal = sessionmaker(bind=engine)
 def get_db_session():
     return SessionLocal()
 
+def _parse_watchfolder_priority(value, default=10):
+    """Valida priority watchfolder (1-99, più basso = più alta)."""
+    if value is None:
+        return default, None
+    try:
+        priority = int(value)
+    except (TypeError, ValueError):
+        return None, 'priority deve essere un intero'
+    if priority < 1 or priority > 99:
+        return None, 'priority deve essere tra 1 e 99'
+    return priority, None
+
 # Import workers after DB setup
+from job_actions import pause_job, cancel_job, requeue_job, resume_job
 from watchfolder_manager import WatchFolderManager
 from transcoder_worker import TranscoderWorker
 
@@ -122,7 +135,7 @@ def public_status():
     """Status generale per pagina pubblica"""
     db_session = get_db_session()
     try:
-        watchfolders = db_session.query(WatchFolder).filter(WatchFolder.active == True).all()
+        watchfolders = db_session.query(WatchFolder).filter(WatchFolder.active == True).order_by(WatchFolder.priority.asc(), WatchFolder.name.asc()).all()
         jobs = db_session.query(TranscodeJob).order_by(TranscodeJob.created_at.desc()).limit(50).all()
         workers = db_session.query(Worker).filter(Worker.active == True).all()
         
@@ -135,8 +148,10 @@ def public_status():
                 'path': wf.path,
                 'status': wf.status,
                 'active': wf.active,
+                'priority': wf.priority if wf.priority is not None else 10,
                 'total_files': len([j for j in jobs if j.watchfolder_id == wf.id]),
                 'pending': len([j for j in jobs if j.watchfolder_id == wf.id and j.status == FileStatus.PENDING]),
+                'paused': len([j for j in jobs if j.watchfolder_id == wf.id and j.status == FileStatus.PAUSED]),
                 'processing': len([j for j in jobs if j.watchfolder_id == wf.id and j.status == FileStatus.PROCESSING]),
                 'completed': len([j for j in jobs if j.watchfolder_id == wf.id and j.status == FileStatus.COMPLETED]),
                 'failed': len([j for j in jobs if j.watchfolder_id == wf.id and j.status == FileStatus.FAILED])
@@ -145,6 +160,7 @@ def public_status():
                 'id': job.id,
                 'filename': job.input_filename,
                 'watchfolder': job.watchfolder.name if job.watchfolder else 'N/A',
+                'watchfolder_priority': job.watchfolder.priority if job.watchfolder and job.watchfolder.priority is not None else None,
                 'status': job.status.value,
                 'progress': job.progress,
                 'created_at': job.created_at.isoformat(),
@@ -170,18 +186,36 @@ def public_status():
 
 @app.route('/api/public/jobs/<int:job_id>/cancel', methods=['POST'])
 def public_job_cancel(job_id):
-    """Annulla job in corso (pending o processing)"""
+    """Annulla/ferma un job"""
+    return _handle_job_action(job_id, cancel_job)
+
+@app.route('/api/public/jobs/<int:job_id>/pause', methods=['POST'])
+def public_job_pause(job_id):
+    """Mette in pausa un job in coda o in elaborazione"""
+    return _handle_job_action(job_id, pause_job)
+
+@app.route('/api/public/jobs/<int:job_id>/requeue', methods=['POST'])
+def public_job_requeue(job_id):
+    """Rimette in coda un job pausato, annullato o fallito"""
+    return _handle_job_action(job_id, requeue_job)
+
+@app.route('/api/public/jobs/<int:job_id>/resume', methods=['POST'])
+def public_job_resume(job_id):
+    """Riprende un job in pausa"""
+    return _handle_job_action(job_id, resume_job)
+
+def _handle_job_action(job_id, action_fn):
     db_session = get_db_session()
     try:
         job = db_session.query(TranscodeJob).filter(TranscodeJob.id == job_id).first()
         if not job:
             return jsonify({'error': 'Job non trovato'}), 404
-        if job.status not in (FileStatus.PENDING, FileStatus.PROCESSING):
-            return jsonify({'error': f'Job non annullabile (stato: {job.status.value})'}), 400
-        job.status = FileStatus.CANCELLED
-        job.completed_at = datetime.utcnow()
+        try:
+            action_fn(job)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
         db_session.commit()
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'status': job.status.value})
     except Exception as e:
         db_session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -201,6 +235,7 @@ def public_job_details(job_id):
             'id': job.id,
             'filename': job.input_filename,
             'watchfolder': job.watchfolder.name if job.watchfolder else 'N/A',
+            'watchfolder_priority': job.watchfolder.priority if job.watchfolder and job.watchfolder.priority is not None else None,
             'status': job.status.value,
             'progress': job.progress,
             'created_at': job.created_at.isoformat(),
@@ -229,7 +264,7 @@ def admin_get_watchfolders():
     
     db_session = get_db_session()
     try:
-        watchfolders = db_session.query(WatchFolder).all()
+        watchfolders = db_session.query(WatchFolder).order_by(WatchFolder.priority.asc(), WatchFolder.name.asc()).all()
         return jsonify([{
             'id': wf.id,
             'name': wf.name,
@@ -244,6 +279,7 @@ def admin_get_watchfolders():
             'ftp_remote_path': wf.ftp_remote_path,
             'ftp_local_temp': wf.ftp_local_temp,
             'active': wf.active,
+            'priority': wf.priority if wf.priority is not None else 10,
             'status': wf.status,
             'preset_id': wf.preset_id,
             'created_at': wf.created_at.isoformat()
@@ -260,6 +296,10 @@ def admin_create_watchfolder():
     data = request.json
     db_session = get_db_session()
     try:
+        priority, err = _parse_watchfolder_priority(data.get('priority', 10))
+        if err:
+            return jsonify({'error': err}), 400
+
         watchfolder = WatchFolder(
             name=data['name'],
             path=data.get('path', ''),
@@ -273,6 +313,7 @@ def admin_create_watchfolder():
             ftp_remote_path=data.get('ftp_remote_path', '/'),
             ftp_local_temp=data.get('ftp_local_temp', '/tmp/xdcam_ftp'),
             active=data.get('active', True),
+            priority=priority,
             preset_id=data.get('preset_id'),
             status='idle'
         )
@@ -316,6 +357,12 @@ def admin_update_watchfolder(watchfolder_id):
         watchfolder.ftp_remote_path = data.get('ftp_remote_path', watchfolder.ftp_remote_path)
         watchfolder.ftp_local_temp = data.get('ftp_local_temp', watchfolder.ftp_local_temp)
         watchfolder.preset_id = data.get('preset_id', watchfolder.preset_id)
+
+        if 'priority' in data:
+            priority, err = _parse_watchfolder_priority(data.get('priority'))
+            if err:
+                return jsonify({'error': err}), 400
+            watchfolder.priority = priority
         
         old_active = watchfolder.active
         watchfolder.active = data.get('active', watchfolder.active)
@@ -564,6 +611,30 @@ def admin_get_jobs():
     finally:
         db_session.close()
 
+@app.route('/api/admin/jobs/<int:job_id>/pause', methods=['POST'])
+def admin_job_pause(job_id):
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Non autorizzato'}), 401
+    return _handle_job_action(job_id, pause_job)
+
+@app.route('/api/admin/jobs/<int:job_id>/cancel', methods=['POST'])
+def admin_job_cancel(job_id):
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Non autorizzato'}), 401
+    return _handle_job_action(job_id, cancel_job)
+
+@app.route('/api/admin/jobs/<int:job_id>/requeue', methods=['POST'])
+def admin_job_requeue(job_id):
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Non autorizzato'}), 401
+    return _handle_job_action(job_id, requeue_job)
+
+@app.route('/api/admin/jobs/<int:job_id>/resume', methods=['POST'])
+def admin_job_resume(job_id):
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Non autorizzato'}), 401
+    return _handle_job_action(job_id, resume_job)
+
 @app.route('/api/admin/logs')
 def admin_get_logs():
     """Restituisce ultime righe del log"""
@@ -624,6 +695,25 @@ def init_default_preset():
     finally:
         db_session.close()
 
+def seed_broadcast_presets():
+    """Inserisce preset broadcast predefiniti (idempotente)."""
+    try:
+        from scripts.seed_presets import seed_broadcast_presets as _seed, get_available_encoders
+        db_session = get_db_session()
+        try:
+            stats = _seed(db_session, get_available_encoders(), verbose=False)
+            if stats["created"]:
+                logger.info("Preset creati: %s", ", ".join(stats["created"]))
+            if stats["skipped_encoder"]:
+                logger.warning(
+                    "Preset non creati (encoder mancante): %s",
+                    ", ".join(stats["skipped_encoder"]),
+                )
+        finally:
+            db_session.close()
+    except Exception as e:
+        logger.warning("Seed preset broadcast non eseguito: %s", e)
+
 if __name__ == '__main__':
     # Esegui migrazione database se necessario
     try:
@@ -633,6 +723,7 @@ if __name__ == '__main__':
         print(f"Nota: Migrazione database non eseguita: {e}")
     
     init_default_preset()
+    seed_broadcast_presets()
     
     # Avvia watchfolder attivi all'avvio
     db_session = get_db_session()

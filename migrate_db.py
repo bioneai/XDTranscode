@@ -51,6 +51,9 @@ def migrate_database():
         
         if 'ftp_local_temp' not in columns:
             migrations.append("ALTER TABLE watchfolders ADD COLUMN ftp_local_temp VARCHAR(512)")
+
+        if 'priority' not in columns:
+            migrations.append("ALTER TABLE watchfolders ADD COLUMN priority INTEGER DEFAULT 10 NOT NULL")
         
         # Migrazioni tabella jobs (mediainfo)
         cursor.execute("PRAGMA table_info(jobs)")

@@ -3,8 +3,9 @@ import subprocess
 import threading
 import time
 import shutil
+from sqlalchemy import func
 from sqlalchemy.orm import Session
-from models import TranscodeJob, Worker, FileStatus
+from models import TranscodeJob, Worker, WatchFolder, FileStatus
 from datetime import datetime
 import json
 import re
@@ -13,6 +14,58 @@ import logging
 from fractions import Fraction
 
 logger = logging.getLogger("XDCAMTranscoder.Worker")
+
+FALLBACK_JOB_PRIORITY = 999
+PRORES_VIDEO_CODECS = frozenset({"prores", "prores_ks", "prores_aw"})
+_vvenc_available = None
+
+
+def is_libvvenc_available():
+    """Verifica se ffmpeg espone l'encoder libvvenc (H.266/VVC)."""
+    global _vvenc_available
+    if _vvenc_available is None:
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-encoders"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                errors="replace",
+            )
+            output = (result.stdout or "") + (result.stderr or "")
+            _vvenc_available = "libvvenc" in output
+        except Exception:
+            _vvenc_available = False
+    return _vvenc_available
+
+
+def should_add_video_bitrate(video_codec, video_bitrate):
+    """ProRes e bitrate vuoto/zero non usano -b:v."""
+    codec = (video_codec or "").strip().lower()
+    bitrate = (video_bitrate or "").strip()
+    if codec in PRORES_VIDEO_CODECS:
+        return False
+    if not bitrate or bitrate == "0":
+        return False
+    return True
+
+
+def pick_next_pending_job(session):
+    """Seleziona il prossimo job PENDING rispettando priority watchfolder e FIFO."""
+    return (
+        session.query(TranscodeJob)
+        .outerjoin(WatchFolder, TranscodeJob.watchfolder_id == WatchFolder.id)
+        .filter(
+            TranscodeJob.status == FileStatus.PENDING,
+            TranscodeJob.worker_id.is_(None),
+        )
+        .order_by(
+            func.coalesce(WatchFolder.priority, FALLBACK_JOB_PRIORITY).asc(),
+            TranscodeJob.created_at.asc(),
+        )
+        .first()
+    )
+
 
 class TranscoderWorker:
     def __init__(self, db_session_factory):
@@ -55,17 +108,16 @@ class TranscoderWorker:
         finally:
             db_session.close()
     
+    def _pick_next_pending_job(self, session):
+        return pick_next_pending_job(session)
+
     def _worker_loop(self, worker_id):
         """Loop principale worker"""
         while self.running.get(worker_id, False):
             try:
                 db_session = self.db_session_factory()
                 try:
-                    # Cerca job pending
-                    job = db_session.query(TranscodeJob).filter(
-                        TranscodeJob.status == FileStatus.PENDING,
-                        TranscodeJob.worker_id.is_(None)
-                    ).first()
+                    job = self._pick_next_pending_job(db_session)
                     
                     if job:
                         # Assegna job al worker
@@ -93,6 +145,19 @@ class TranscoderWorker:
             job = db_session.query(TranscodeJob).filter(TranscodeJob.id == job_id).first()
             if not job:
                 return
+
+            if job.status == FileStatus.PAUSED:
+                return
+
+            preset = job.preset
+            if preset and preset.name == "H266_HQ" and (preset.video_codec or "").strip() == "libvvenc":
+                if not is_libvvenc_available():
+                    logger.warning("Preset H266_HQ richiesto ma libvvenc non disponibile in ffmpeg")
+                    job.status = FileStatus.FAILED
+                    job.error_message = "Encoder libvvenc (H.266/VVC) non disponibile in FFmpeg"
+                    job.completed_at = datetime.utcnow()
+                    db_session.commit()
+                    return
             
             # Verifica esistenza file
             if not os.path.exists(job.input_path):
@@ -163,35 +228,67 @@ class TranscoderWorker:
             
             db_session = self.db_session_factory()
             job = db_session.query(TranscodeJob).filter(TranscodeJob.id == job_id).first()
-            
-            if process.returncode == 0 and os.path.exists(job.output_path):
-                job.status = FileStatus.COMPLETED
-                job.progress = 100
-                job.output_size = os.path.getsize(job.output_path) if os.path.exists(job.output_path) else None
-                job.output_duration = self._get_video_duration(job.output_path)
-                
-                # Mediainfo file in uscita
-                output_mediainfo = self._get_mediainfo(job.output_path)
-                if output_mediainfo:
-                    job.output_mediainfo = output_mediainfo
-                
-                # Sposta file originale in archivio se configurato
-                if job.watchfolder and job.watchfolder.archive_path:
-                    self._archive_original_file(job)
-            elif job.status == FileStatus.CANCELLED:
-                # Annullato dall'utente: rimuovi eventuale file output parziale
+            if not job:
+                return
+
+            signalled = process.returncode is not None and process.returncode < 0
+
+            # Stati utente prima di valutare esito FFmpeg (evita race pause → failed)
+            if job.status == FileStatus.PAUSED:
                 if job.output_path and os.path.exists(job.output_path):
                     try:
                         os.remove(job.output_path)
                     except OSError as e:
                         logger.warning("Rimozione file parziale fallita %s: %s", job.output_path, e)
+                job.progress = 0
+                job.worker_id = None
+                job.completed_at = None
+                db_session.commit()
+                return
+
+            if job.status == FileStatus.CANCELLED:
+                if job.output_path and os.path.exists(job.output_path):
+                    try:
+                        os.remove(job.output_path)
+                    except OSError as e:
+                        logger.warning("Rimozione file parziale fallita %s: %s", job.output_path, e)
+                if not job.completed_at:
+                    job.completed_at = datetime.utcnow()
+                db_session.commit()
+                return
+
+            if signalled and job.status == FileStatus.PROCESSING:
+                job.status = FileStatus.PAUSED
+                if job.output_path and os.path.exists(job.output_path):
+                    try:
+                        os.remove(job.output_path)
+                    except OSError as e:
+                        logger.warning("Rimozione file parziale fallita %s: %s", job.output_path, e)
+                job.progress = 0
+                job.worker_id = None
+                job.completed_at = None
+                db_session.commit()
+                return
+
+            if process.returncode == 0 and os.path.exists(job.output_path):
+                job.status = FileStatus.COMPLETED
+                job.progress = 100
+                job.output_size = os.path.getsize(job.output_path) if os.path.exists(job.output_path) else None
+                job.output_duration = self._get_video_duration(job.output_path)
+
+                output_mediainfo = self._get_mediainfo(job.output_path)
+                if output_mediainfo:
+                    job.output_mediainfo = output_mediainfo
+
+                if job.watchfolder and job.watchfolder.archive_path:
+                    self._archive_original_file(job)
+                job.completed_at = datetime.utcnow()
             else:
                 job.status = FileStatus.FAILED
-                # Estrai messaggio errore più significativo
                 error_msg = self._extract_error_message(stderr, process.returncode)
                 job.error_message = error_msg
-            
-            job.completed_at = datetime.utcnow()
+                job.completed_at = datetime.utcnow()
+
             db_session.commit()
             
         except Exception as e:
@@ -213,7 +310,8 @@ class TranscoderWorker:
         
         # Video codec e bitrate
         cmd.extend(['-c:v', preset.video_codec])
-        cmd.extend(['-b:v', preset.video_bitrate])
+        if should_add_video_bitrate(preset.video_codec, preset.video_bitrate):
+            cmd.extend(['-b:v', preset.video_bitrate])
         
         # Audio codec, bitrate, sample rate, channels
         cmd.extend(['-c:a', preset.audio_codec])
@@ -521,7 +619,7 @@ class TranscoderWorker:
                 # Verifica richiesta annullamento
                 db_session.expire_all()
                 job = db_session.query(TranscodeJob).filter(TranscodeJob.id == job_id).first()
-                if job and job.status == FileStatus.CANCELLED:
+                if job and job.status in (FileStatus.CANCELLED, FileStatus.PAUSED):
                     process.terminate()
                     break
                 # Leggi stderr (FFmpeg usa stderr per output)

@@ -39,6 +39,7 @@
                         <thead>
                             <tr>
                                 <th>Nome</th>
+                                <th>Priorità</th>
                                 <th>Path</th>
                                 <th>Output Path</th>
                                 <th>Archive Path</th>
@@ -114,6 +115,7 @@
                                 <th>Progress</th>
                                 <th>Created</th>
                                 <th>Error</th>
+                                <th>Azioni</th>
                             </tr>
                         </thead>
                         <tbody id="jobs-tbody-admin"></tbody>
@@ -158,6 +160,11 @@
                 <div class="form-group">
                     <label>Nome</label>
                     <input type="text" id="watchfolder-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Priorità</label>
+                    <input type="number" id="watchfolder-priority" value="10" min="1" max="99" required>
+                    <small style="color: var(--text-secondary);">1 = massima priorità. I job dei watchfolder con numero più basso vengono elaborati per primi.</small>
                 </div>
                 <div class="form-group">
                     <label>Tipo Watchfolder</label>
@@ -319,6 +326,7 @@
         </div>
     </div>
 
+    <script src="{{ url_for('static', filename='js/job_queue.js') }}"></script>
     <script src="{{ url_for('static', filename='js/admin_dashboard.js') }}"></script>
 </body>
 </html>

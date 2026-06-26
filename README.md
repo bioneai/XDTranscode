@@ -110,7 +110,55 @@ Smoke test manuale consigliato:
 Input: MP4, MOV, AVI, MXF, MKV, MTS, M2TS
 Output: MXF (XDCAM50)
 
-## Preset XDCAM50 Default
+## Preset disponibili
+
+All'avvio l'applicazione crea automaticamente i preset predefiniti (idempotente: non duplica quelli esistenti).
+È possibile crearne altri dall'admin panel o eseguire manualmente:
+
+```bash
+source .venv/bin/activate
+python scripts/seed_presets.py
+```
+
+### XDCAM50 (default broadcast MPEG-2)
+
+| Campo | Valore |
+|-------|--------|
+| Video | MPEG-2 50 Mbps, yuv422p |
+| Audio | PCM 16-bit, 48 kHz stereo |
+| Container | MXF |
+
+### DNxHD (Avid)
+
+| Nome | Bitrate | Container |
+|------|---------|-----------|
+| DNXHD_120 | 120 Mbps | MOV |
+| DNXHD_145 | 145 Mbps | MOV |
+| DNXHD_220 | 220 Mbps | MOV |
+
+### H.264 / H.265 / H.266
+
+| Nome | Codec | Bitrate | Container | Note |
+|------|-------|---------|-----------|------|
+| H264_HQ | libx264 | 15 Mbps | MP4 | yuv420p |
+| H264_BROADCAST | libx264 | 50 Mbps | MXF | yuv422p high422 |
+| H265_HQ | libx265 | 12 Mbps | MP4 | yuv420p |
+| H265_BROADCAST | libx265 | 25 Mbps | MP4 | yuv422p |
+| H266_HQ | libvvenc | 8 Mbps | MP4 | Solo se FFmpeg ha libvvenc |
+
+### Apple ProRes
+
+| Nome | Profilo | Container |
+|------|---------|-----------|
+| PRORES_PROXY | 0 (Proxy) | MOV |
+| PRORES_LT | 1 (LT) | MOV |
+| PRORES_422 | 2 (422) | MOV |
+| PRORES_HQ | 3 (HQ) | MOV |
+| PRORES_4444 | 4 (4444) | MOV |
+
+ProRes non usa `-b:v` esplicito (bitrate determinato dal profilo).
+
+### Preset XDCAM50 Default (dettaglio tecnico)
 
 - Video Codec: MPEG-2
 - Video Bitrate: 50 Mbps

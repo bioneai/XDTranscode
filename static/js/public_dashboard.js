@@ -37,13 +37,16 @@ function updateWatchfolders(watchfolders) {
     }
     if (header) header.style.display = 'grid';
     
-    watchfolders.forEach(wf => {
+    const sorted = [...watchfolders].sort((a, b) => (a.priority ?? 10) - (b.priority ?? 10) || a.name.localeCompare(b.name));
+
+    sorted.forEach(wf => {
         const row = document.createElement('div');
         row.className = 'watchfolder-row';
         const statusClass = `status-${wf.status}`;
         
         row.innerHTML = `
             <span class="wf-name" title="${escapeHtml(wf.path)}">${escapeHtml(wf.name)}</span>
+            <span class="wf-priority" title="Priorità">${wf.priority ?? 10}</span>
             <span class="wf-status ${statusClass}">${wf.status}</span>
             <span class="wf-stat" title="In attesa"><span class="wf-num wf-pending">${wf.pending}</span></span>
             <span class="wf-stat" title="In elaborazione"><span class="wf-num wf-processing">${wf.processing}</span></span>
@@ -87,10 +90,7 @@ function updateJobs(jobs) {
                 <button class="btn btn-small btn-secondary" onclick="showJobDetails(${job.id})">
                     Dettagli
                 </button>
-                ${(job.status === 'pending' || job.status === 'processing') ? `
-                <button class="btn btn-small" style="background: var(--warning-color); color: white;" onclick="stopJob(${job.id}, this)">
-                    Stop
-                </button>` : ''}
+                ${buildJobActionButtons(job, 'public')}
             </td>
         `;
         
@@ -124,25 +124,6 @@ function updateWorkers(workers) {
         
         grid.appendChild(card);
     });
-}
-
-async function stopJob(jobId, btn) {
-    if (!confirm('Terminare la transcodifica in corso?')) return;
-    try {
-        btn.disabled = true;
-        const response = await fetch(`/api/public/jobs/${jobId}/cancel`, { method: 'POST' });
-        const data = await response.json();
-        if (response.ok) {
-            fetchStatus();
-        } else {
-            alert(data.error || 'Errore');
-        }
-    } catch (error) {
-        console.error('Errore stop job:', error);
-        alert('Errore di connessione');
-    } finally {
-        btn.disabled = false;
-    }
 }
 
 async function showJobDetails(jobId) {

@@ -57,7 +57,7 @@ class WatchFolderHandler(FileSystemEventHandler):
             # Verifica se job già esistente per questo file
             existing = db_session.query(TranscodeJob).filter(
                 TranscodeJob.input_path == file_path,
-                TranscodeJob.status.in_([FileStatus.PENDING, FileStatus.PROCESSING])
+                TranscodeJob.status.in_([FileStatus.PENDING, FileStatus.PROCESSING, FileStatus.PAUSED])
             ).first()
             
             if existing:

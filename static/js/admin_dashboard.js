@@ -56,7 +56,9 @@ async function loadWatchfolders() {
         const tbody = document.getElementById('watchfolders-tbody');
         tbody.innerHTML = '';
         
-        data.forEach(wf => {
+        const sorted = [...data].sort((a, b) => (a.priority ?? 10) - (b.priority ?? 10) || a.name.localeCompare(b.name));
+
+        sorted.forEach(wf => {
             const row = document.createElement('tr');
             const watchTypeLabel = wf.watch_type === 'ftp' ? 'FTP' : 'Locale';
             const pathDisplay = wf.watch_type === 'ftp' 
@@ -65,6 +67,7 @@ async function loadWatchfolders() {
             
             row.innerHTML = `
                 <td>${escapeHtml(wf.name)}</td>
+                <td><span class="priority-badge" title="Priorità (più basso = prima)">${wf.priority ?? 10}</span></td>
                 <td>${pathDisplay} <span style="color: var(--text-secondary); font-size: 11px;">(${watchTypeLabel})</span></td>
                 <td>${escapeHtml(wf.output_path || '-')}</td>
                 <td>${escapeHtml(wf.archive_path || '-')}</td>
@@ -125,6 +128,7 @@ async function editWatchfolder(id) {
             document.getElementById('watchfolder-ftp-remote-path').value = wf.ftp_remote_path || '/';
             document.getElementById('watchfolder-ftp-local-temp').value = wf.ftp_local_temp || '/tmp/xdcam_ftp';
             document.getElementById('watchfolder-preset-id').value = wf.preset_id || '';
+            document.getElementById('watchfolder-priority').value = wf.priority ?? 10;
             document.getElementById('watchfolder-active').checked = wf.active;
         }
     } else {
@@ -138,6 +142,7 @@ async function editWatchfolder(id) {
         document.getElementById('watchfolder-ftp-port').value = 21;
         document.getElementById('watchfolder-ftp-remote-path').value = '/';
         document.getElementById('watchfolder-ftp-local-temp').value = '/tmp/xdcam_ftp';
+        document.getElementById('watchfolder-priority').value = 10;
     }
     
     modal.classList.add('active');
@@ -154,6 +159,7 @@ document.getElementById('watchfolder-form').addEventListener('submit', async (e)
         path: watchType === 'local' ? document.getElementById('watchfolder-path').value : '',
         output_path: document.getElementById('watchfolder-output-path').value,
         archive_path: document.getElementById('watchfolder-archive-path').value,
+        priority: parseInt(document.getElementById('watchfolder-priority').value, 10) || 10,
         preset_id: document.getElementById('watchfolder-preset-id').value || null,
         active: document.getElementById('watchfolder-active').checked
     };
@@ -487,6 +493,7 @@ async function loadJobs() {
                 </td>
                 <td>${created}</td>
                 <td>${job.error_message ? escapeHtml(job.error_message.substring(0, 50)) + '...' : '-'}</td>
+                <td>${buildJobActionButtons(job, 'admin')}</td>
             `;
             tbody.appendChild(row);
         });
