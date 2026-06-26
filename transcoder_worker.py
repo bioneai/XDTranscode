@@ -58,6 +58,7 @@ def pick_next_pending_job(session):
         .filter(
             TranscodeJob.status == FileStatus.PENDING,
             TranscodeJob.worker_id.is_(None),
+            func.coalesce(WatchFolder.operation_mode, 'transcode') != 'download_only',
         )
         .order_by(
             func.coalesce(WatchFolder.priority, FALLBACK_JOB_PRIORITY).asc(),

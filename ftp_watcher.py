@@ -2,13 +2,18 @@ import os
 import time
 import threading
 import logging
+from datetime import datetime
 import ftputil
 from models import WatchFolder, TranscodeJob, FileStatus
 from ftp_utils import (
     DEFAULT_FTP_LOCAL_TEMP,
     FTP_EXCEPTIONS,
+    VIDEO_EXTENSIONS,
     chdir_ftp,
+    download_with_progress,
     ftp_session_factory,
+    is_download_only_watchfolder,
+    job_blocks_ftp_redetection,
 )
 
 logging.basicConfig(
@@ -28,7 +33,7 @@ class FTPWatcher:
         self.db_session_factory = db_session_factory
         self.running = False
         self.thread = None
-        self.allowed_extensions = ['.mp4', '.mov', '.avi', '.mxf', '.mkv', '.mts', '.m2ts']
+        self.allowed_extensions = list(VIDEO_EXTENSIONS)
         self.known_files = set()
         self.pending_files = {}
         self.last_error = None
@@ -182,7 +187,9 @@ class FTPWatcher:
                         TranscodeJob.watchfolder_id == self.watchfolder_id
                     ).all()
                     existing_filenames_lower = {
-                        job.input_filename.lower() for job in existing_jobs
+                        job.input_filename.lower()
+                        for job in existing_jobs
+                        if job_blocks_ftp_redetection(job)
                     }
                 finally:
                     check_db_session.close()
@@ -248,7 +255,147 @@ class FTPWatcher:
         finally:
             db_session.close()
 
+    def _update_job_fields(self, job_id, **fields):
+        db_session = self.db_session_factory()
+        try:
+            job = db_session.query(TranscodeJob).filter(TranscodeJob.id == job_id).first()
+            if not job:
+                return None
+            for key, value in fields.items():
+                setattr(job, key, value)
+            db_session.commit()
+            db_session.refresh(job)
+            return job
+        finally:
+            db_session.close()
+
     def _process_ftp_file(self, watchfolder, ftp, filename, file_size_remote=0):
+        if is_download_only_watchfolder(watchfolder):
+            self._process_ftp_download_only(watchfolder, ftp, filename, file_size_remote)
+        else:
+            self._process_ftp_transcode(watchfolder, ftp, filename, file_size_remote)
+
+    def _process_ftp_download_only(self, watchfolder, ftp, filename, file_size_remote=0):
+        db_session = self.db_session_factory()
+        job_id = None
+        local_file_path = None
+        try:
+            existing = db_session.query(TranscodeJob).filter(
+                TranscodeJob.input_filename == filename,
+                TranscodeJob.watchfolder_id == self.watchfolder_id,
+                TranscodeJob.status.in_([
+                    FileStatus.PENDING,
+                    FileStatus.PROCESSING,
+                    FileStatus.PAUSED,
+                ]),
+            ).first()
+            if existing:
+                return
+
+            output_dir = watchfolder.output_path or watchfolder.ftp_local_temp or DEFAULT_FTP_LOCAL_TEMP
+            os.makedirs(output_dir, exist_ok=True)
+            local_file_path = os.path.join(output_dir, filename)
+
+            job = TranscodeJob(
+                watchfolder_id=self.watchfolder_id,
+                preset_id=None,
+                input_filename=filename,
+                input_path=local_file_path,
+                output_path=local_file_path,
+                status=FileStatus.PROCESSING,
+                progress=0,
+                input_size=file_size_remote or None,
+                started_at=datetime.utcnow(),
+            )
+            db_session.add(job)
+            db_session.commit()
+            job_id = job.id
+            db_session.close()
+            db_session = None
+
+            logger.info(f"Download-only job {job_id}: scarico {filename} in {local_file_path}")
+
+            last_progress = -1
+
+            def on_progress(percent):
+                nonlocal last_progress
+                if percent - last_progress < 5 and percent < 100:
+                    return
+                last_progress = percent
+                self._update_job_fields(job_id, progress=percent)
+
+            download_with_progress(
+                ftp,
+                filename,
+                local_file_path,
+                file_size_remote,
+                on_progress,
+            )
+
+            job = self._update_job_fields(job_id)
+            if not job:
+                return
+            if job.status in (FileStatus.CANCELLED, FileStatus.PAUSED):
+                if os.path.exists(local_file_path):
+                    try:
+                        os.remove(local_file_path)
+                    except OSError:
+                        pass
+                logger.info(f"Download job {job_id} interrotto (stato {job.status.value})")
+                return
+
+            if not os.path.exists(local_file_path):
+                self._update_job_fields(
+                    job_id,
+                    status=FileStatus.FAILED,
+                    error_message='File locale non trovato dopo il download',
+                    completed_at=datetime.utcnow(),
+                )
+                return
+
+            file_size = os.path.getsize(local_file_path)
+            if file_size == 0:
+                os.remove(local_file_path)
+                self._update_job_fields(
+                    job_id,
+                    status=FileStatus.FAILED,
+                    error_message='File scaricato vuoto',
+                    completed_at=datetime.utcnow(),
+                )
+                return
+
+            self._update_job_fields(
+                job_id,
+                status=FileStatus.COMPLETED,
+                progress=100,
+                input_size=file_size,
+                output_size=file_size,
+                completed_at=datetime.utcnow(),
+            )
+            logger.info(f"Download-only job {job_id} completato: {filename} ({file_size} bytes)")
+
+        except Exception as e:
+            if local_file_path and os.path.exists(local_file_path):
+                try:
+                    os.remove(local_file_path)
+                except OSError:
+                    pass
+            if job_id:
+                self._update_job_fields(
+                    job_id,
+                    status=FileStatus.FAILED,
+                    error_message=str(e),
+                    completed_at=datetime.utcnow(),
+                )
+            logger.error(
+                f"Errore download-only file {filename}: {str(e)}",
+                exc_info=True,
+            )
+        finally:
+            if db_session is not None:
+                db_session.close()
+
+    def _process_ftp_transcode(self, watchfolder, ftp, filename, file_size_remote=0):
         db_session = self.db_session_factory()
         try:
             existing = db_session.query(TranscodeJob).filter(

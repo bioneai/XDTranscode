@@ -54,6 +54,11 @@ def migrate_database():
 
         if 'priority' not in columns:
             migrations.append("ALTER TABLE watchfolders ADD COLUMN priority INTEGER DEFAULT 10 NOT NULL")
+
+        if 'operation_mode' not in columns:
+            migrations.append(
+                "ALTER TABLE watchfolders ADD COLUMN operation_mode VARCHAR(20) DEFAULT 'transcode'"
+            )
         
         # Migrazioni tabella jobs (mediainfo)
         cursor.execute("PRAGMA table_info(jobs)")

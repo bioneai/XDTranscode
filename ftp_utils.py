@@ -1,9 +1,17 @@
 """Utility condivise per connessioni FTP/FTPS."""
 
+import os
 import ftplib
 from ftputil.error import FTPError, PermanentError, TemporaryError
 
+from models import FileStatus, OPERATION_MODE_DOWNLOAD_ONLY
+
 DEFAULT_FTP_LOCAL_TEMP = '/var/lib/xdtranscode/ftp_temp'
+
+# Estensioni video accettate da watchfolder locali e FTP
+VIDEO_EXTENSIONS = (
+    '.mp4', '.m4v', '.mov', '.avi', '.mxf', '.mkv', '.mts', '.m2ts',
+)
 
 # Eccezioni FTP da intercettare (ftputil.FTPError non esiste come attributo del modulo)
 FTP_EXCEPTIONS = (
@@ -81,3 +89,49 @@ def test_ftp_connection(host, username, password, port=21, remote_path='/', time
         return False, f'Errore connessione FTP: {type(e).__name__}: {e}'
     except Exception as e:
         return False, f'Errore connessione FTP: {type(e).__name__}: {e}'
+
+
+def is_download_only_watchfolder(watchfolder):
+    """True se il watchfolder FTP è in modalità solo download."""
+    return (
+        (watchfolder.watch_type or 'local') == 'ftp'
+        and (watchfolder.operation_mode or 'transcode') == OPERATION_MODE_DOWNLOAD_ONLY
+    )
+
+
+def job_blocks_ftp_redetection(job):
+    """Indica se un job esistente impedisce di rilevare di nuovo lo stesso file su FTP."""
+    if job.status in (
+        FileStatus.PENDING,
+        FileStatus.PROCESSING,
+        FileStatus.PAUSED,
+        FileStatus.COMPLETED,
+    ):
+        return True
+    if job.status in (FileStatus.FAILED, FileStatus.CANCELLED):
+        if job.input_path and os.path.exists(job.input_path):
+            return True
+    return False
+
+
+def download_with_progress(ftp, remote_name, local_path, total_size=0, progress_callback=None):
+    """Scarica un file FTP aggiornando il progresso via callback(percent)."""
+    bytes_received = 0
+    last_reported = -1
+
+    def callback(chunk):
+        nonlocal bytes_received, last_reported
+        bytes_received += len(chunk)
+        if not progress_callback:
+            return
+        if total_size and total_size > 0:
+            percent = min(99, int(bytes_received * 100 / total_size))
+        else:
+            percent = min(99, bytes_received // (1024 * 1024))
+        if percent > last_reported:
+            last_reported = percent
+            progress_callback(percent)
+
+    ftp.download(remote_name, local_path, callback=callback)
+    if progress_callback:
+        progress_callback(100)

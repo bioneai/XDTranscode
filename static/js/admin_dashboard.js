@@ -60,7 +60,9 @@ async function loadWatchfolders() {
 
         sorted.forEach(wf => {
             const row = document.createElement('tr');
-            const watchTypeLabel = wf.watch_type === 'ftp' ? 'FTP' : 'Locale';
+            const watchTypeLabel = wf.watch_type === 'ftp'
+                ? (wf.operation_mode === 'download_only' ? 'FTP (solo download)' : 'FTP')
+                : 'Locale';
             const pathDisplay = wf.watch_type === 'ftp' 
                 ? `${escapeHtml(wf.ftp_host || '')}${wf.ftp_remote_path ? ':' + escapeHtml(wf.ftp_remote_path) : ''}`
                 : escapeHtml(wf.path);
@@ -118,6 +120,7 @@ async function editWatchfolder(id) {
             document.getElementById('watchfolder-name').value = wf.name;
             document.getElementById('watchfolder-type').value = wf.watch_type || 'local';
             toggleWatchfolderType();
+            toggleWatchfolderOperationMode();
             document.getElementById('watchfolder-path').value = wf.path || '';
             document.getElementById('watchfolder-output-path').value = wf.output_path || '';
             document.getElementById('watchfolder-archive-path').value = wf.archive_path || '';
@@ -127,6 +130,7 @@ async function editWatchfolder(id) {
             document.getElementById('watchfolder-ftp-password').value = ''; // Non mostrare password esistente
             document.getElementById('watchfolder-ftp-remote-path').value = wf.ftp_remote_path || '/';
             document.getElementById('watchfolder-ftp-local-temp').value = wf.ftp_local_temp || '/tmp/xdcam_ftp';
+            document.getElementById('watchfolder-operation-mode').value = wf.operation_mode || 'transcode';
             document.getElementById('watchfolder-preset-id').value = wf.preset_id || '';
             document.getElementById('watchfolder-priority').value = wf.priority ?? 10;
             document.getElementById('watchfolder-active').checked = wf.active;
@@ -142,7 +146,10 @@ async function editWatchfolder(id) {
         document.getElementById('watchfolder-ftp-port').value = 21;
         document.getElementById('watchfolder-ftp-remote-path').value = '/';
         document.getElementById('watchfolder-ftp-local-temp').value = '/tmp/xdcam_ftp';
+        document.getElementById('watchfolder-operation-mode').value = 'transcode';
         document.getElementById('watchfolder-priority').value = 10;
+        toggleWatchfolderType();
+        toggleWatchfolderOperationMode();
     }
     
     modal.classList.add('active');
@@ -175,6 +182,10 @@ document.getElementById('watchfolder-form').addEventListener('submit', async (e)
         }
         data.ftp_remote_path = document.getElementById('watchfolder-ftp-remote-path').value || '/';
         data.ftp_local_temp = document.getElementById('watchfolder-ftp-local-temp').value || '/tmp/xdcam_ftp';
+        data.operation_mode = document.getElementById('watchfolder-operation-mode').value || 'transcode';
+        if (data.operation_mode === 'download_only') {
+            data.preset_id = null;
+        }
     }
     
     try {
@@ -555,11 +566,24 @@ function toggleWatchfolderType() {
         localFields.style.display = 'none';
         ftpFields.style.display = 'block';
         pathInput.removeAttribute('required');
+        toggleWatchfolderOperationMode();
     } else {
         localFields.style.display = 'block';
         ftpFields.style.display = 'none';
         pathInput.setAttribute('required', 'required');
+        document.getElementById('watchfolder-preset-group').style.display = 'block';
     }
+}
+
+function toggleWatchfolderOperationMode() {
+    const watchType = document.getElementById('watchfolder-type').value;
+    const operationMode = document.getElementById('watchfolder-operation-mode').value;
+    const presetGroup = document.getElementById('watchfolder-preset-group');
+    if (watchType !== 'ftp') {
+        presetGroup.style.display = 'block';
+        return;
+    }
+    presetGroup.style.display = operationMode === 'download_only' ? 'none' : 'block';
 }
 
 // Logs

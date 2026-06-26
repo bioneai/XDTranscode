@@ -79,6 +79,26 @@ def _parse_watchfolder_priority(value, default=10):
         return None, 'priority deve essere tra 1 e 99'
     return priority, None
 
+
+def _parse_operation_mode(watch_type, operation_mode):
+    """Valida modalità operativa watchfolder."""
+    from models import OPERATION_MODE_TRANSCODE, OPERATION_MODE_DOWNLOAD_ONLY
+
+    mode = (operation_mode or OPERATION_MODE_TRANSCODE).strip()
+    if mode not in (OPERATION_MODE_TRANSCODE, OPERATION_MODE_DOWNLOAD_ONLY):
+        return None, 'operation_mode non valido'
+    if mode == OPERATION_MODE_DOWNLOAD_ONLY and watch_type != 'ftp':
+        return None, 'Solo download disponibile solo per watchfolder FTP'
+    return mode, None
+
+
+def _job_preset_label(job):
+    from ftp_utils import is_download_only_watchfolder
+
+    if job.watchfolder and is_download_only_watchfolder(job.watchfolder):
+        return 'Solo download'
+    return job.preset.name if job.preset else 'N/A'
+
 # Import workers after DB setup
 from job_actions import pause_job, cancel_job, requeue_job, resume_job
 from watchfolder_manager import WatchFolderManager
@@ -171,7 +191,8 @@ def public_status():
                 'input_size': job.input_size,
                 'output_size': job.output_size,
                 'input_duration': job.input_duration,
-                'output_duration': job.output_duration
+                'output_duration': job.output_duration,
+                'operation': _job_preset_label(job),
             } for job in jobs],
             'workers': [{
                 'id': w.id,
@@ -251,7 +272,8 @@ def public_job_details(job_id):
             'output_duration': job.output_duration,
             'input_mediainfo': job.input_mediainfo,
             'output_mediainfo': job.output_mediainfo,
-            'preset': job.preset.name if job.preset else 'N/A'
+            'preset': _job_preset_label(job),
+            'operation': _job_preset_label(job),
         })
     finally:
         db_session.close()
@@ -279,6 +301,7 @@ def admin_get_watchfolders():
             'ftp_password': wf.ftp_password if wf.ftp_password else None,  # Non mostrare password
             'ftp_remote_path': wf.ftp_remote_path,
             'ftp_local_temp': wf.ftp_local_temp,
+            'operation_mode': wf.operation_mode or 'transcode',
             'active': wf.active,
             'priority': wf.priority if wf.priority is not None else 10,
             'status': wf.status,
@@ -315,6 +338,10 @@ def admin_create_watchfolder():
             if not ok:
                 return jsonify({'error': msg}), 400
 
+        operation_mode, err = _parse_operation_mode(watch_type, data.get('operation_mode'))
+        if err:
+            return jsonify({'error': err}), 400
+
         watchfolder = WatchFolder(
             name=data['name'],
             path=data.get('path', ''),
@@ -327,6 +354,7 @@ def admin_create_watchfolder():
             ftp_password=data.get('ftp_password'),
             ftp_remote_path=data.get('ftp_remote_path', '/'),
             ftp_local_temp=data.get('ftp_local_temp', DEFAULT_FTP_LOCAL_TEMP),
+            operation_mode=operation_mode,
             active=data.get('active', True),
             priority=priority,
             preset_id=data.get('preset_id'),
@@ -371,6 +399,14 @@ def admin_update_watchfolder(watchfolder_id):
             watchfolder.ftp_password = data['ftp_password']
         watchfolder.ftp_remote_path = data.get('ftp_remote_path', watchfolder.ftp_remote_path)
         watchfolder.ftp_local_temp = data.get('ftp_local_temp', watchfolder.ftp_local_temp)
+        if 'operation_mode' in data:
+            operation_mode, err = _parse_operation_mode(
+                data.get('watch_type', watchfolder.watch_type or 'local'),
+                data.get('operation_mode'),
+            )
+            if err:
+                return jsonify({'error': err}), 400
+            watchfolder.operation_mode = operation_mode
         watchfolder.preset_id = data.get('preset_id', watchfolder.preset_id)
 
         if 'priority' in data:
@@ -391,6 +427,7 @@ def admin_update_watchfolder(watchfolder_id):
                 'ftp_username',
                 'ftp_password',
                 'ftp_remote_path',
+                'operation_mode',
             )
         )
         if (

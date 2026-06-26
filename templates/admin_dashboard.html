@@ -212,6 +212,14 @@
                         <label>Local Temp Directory (per download)</label>
                         <input type="text" id="watchfolder-ftp-local-temp" placeholder="/tmp/xdcam_ftp" value="/tmp/xdcam_ftp">
                     </div>
+                    <div class="form-group">
+                        <label>Modalità FTP</label>
+                        <select id="watchfolder-operation-mode" onchange="toggleWatchfolderOperationMode()">
+                            <option value="transcode">Scarica e transcodifica</option>
+                            <option value="download_only">Solo download</option>
+                        </select>
+                        <small style="color: var(--text-secondary);">In solo download i file vengono salvati in Output Path con il nome originale, senza transcodifica.</small>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -222,7 +230,7 @@
                     <label>Archive Path (cartella per file originali dopo transcodifica)</label>
                     <input type="text" id="watchfolder-archive-path" placeholder="Lasciare vuoto per non archiviare">
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="watchfolder-preset-group">
                     <label>Preset</label>
                     <select id="watchfolder-preset-id"></select>
                 </div>

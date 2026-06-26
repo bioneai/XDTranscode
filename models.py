@@ -14,6 +14,9 @@ class FileStatus(enum.Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+OPERATION_MODE_TRANSCODE = 'transcode'
+OPERATION_MODE_DOWNLOAD_ONLY = 'download_only'
+
 class WatchFolder(Base):
     __tablename__ = 'watchfolders'
     
@@ -29,6 +32,7 @@ class WatchFolder(Base):
     ftp_password = Column(String(255))  # Password FTP (in produzione usare encryption)
     ftp_remote_path = Column(String(512))  # Path remoto sul server FTP
     ftp_local_temp = Column(String(512))  # Directory locale temporanea per download
+    operation_mode = Column(String(20), default=OPERATION_MODE_TRANSCODE)  # transcode | download_only (solo FTP)
     active = Column(Integer, default=1)  # 1 = active, 0 = inactive
     priority = Column(Integer, default=10, nullable=False)  # più basso = priorità più alta
     status = Column(String(50), default='idle')  # idle, monitoring, error

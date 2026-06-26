@@ -4,13 +4,14 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from sqlalchemy.orm import Session
 from models import WatchFolder, TranscodeJob, FileStatus
+from ftp_utils import VIDEO_EXTENSIONS
 from datetime import datetime
 
 class WatchFolderHandler(FileSystemEventHandler):
     def __init__(self, watchfolder_id, db_session_factory):
         self.watchfolder_id = watchfolder_id
         self.db_session_factory = db_session_factory
-        self.allowed_extensions = ['.mp4', '.mov', '.avi', '.mxf', '.mkv', '.mts', '.m2ts']
+        self.allowed_extensions = list(VIDEO_EXTENSIONS)
     
     def on_created(self, event):
         if not event.is_directory:

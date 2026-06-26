@@ -30,6 +30,12 @@ class TestFTPWatcherErrors(unittest.TestCase):
 
         self.assertFalse(hasattr(ftputil, 'FTPError'))
 
+    def test_video_extensions_include_m4v(self):
+        from ftp_utils import VIDEO_EXTENSIONS
+
+        self.assertIn('.m4v', VIDEO_EXTENSIONS)
+        self.assertIn('.mp4', VIDEO_EXTENSIONS)
+
 
 if __name__ == '__main__':
     unittest.main()
